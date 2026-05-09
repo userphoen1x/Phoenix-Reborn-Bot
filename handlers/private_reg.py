@@ -91,7 +91,8 @@ async def process_tag_input(message: Message, state: FSMContext):
         await state.clear()
     else:
         # Игрок существует, но он в другом клане (или без клана)
-        await wait_msg.edit_text(f"⛔️ Отказ в доступе.\nИгрок **{result['name']}** не состоит в нашем клубе.")
+        await wait_msg.edit_text(f"⛔️ Отказ в доступе.\nИгрок <b>{result['name']}</b> не состоит в нашем клубе.")
+        parse_mode = "HTML"
         await state.clear()
 
 
