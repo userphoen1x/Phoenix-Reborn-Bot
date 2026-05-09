@@ -115,3 +115,4 @@ async def send_invite_link(callback: CallbackQuery):
     except:
         await callback.message.edit_text("⚠️ Ошибка прав.")
     await callback.answer()
+
