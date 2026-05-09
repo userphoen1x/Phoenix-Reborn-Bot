@@ -4,7 +4,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 API_KEY = os.getenv("BS_API_KEY")
-CLAN_TAG = os.getenv("CLAN_TAG")
+
+# Получаем строку с тегами и разбиваем её по запятой в список
+tags_string = os.getenv("CLAN_TAGS", "")
+CLAN_TAGS = [tag.strip() for tag in tags_string.split(",")]
 
 async def check_player(player_tag: str):
     # Очищаем тег от решетки и делаем заглавным
@@ -20,8 +23,8 @@ async def check_player(player_tag: str):
                     player_name = data.get("name", "Неизвестно")
                     club_tag = data.get("club", {}).get("tag", "")
 
-                    # Сравниваем тег клуба игрока с нашим
-                    if club_tag == CLAN_TAG:
+                    # Сравниваем тег клуба игрока: есть ли он в НАШЕМ СПИСКЕ
+                    if club_tag in CLAN_TAGS:
                         return {"success": True, "status": "member", "name": player_name}
                     else:
                         return {"success": True, "status": "not_member", "name": player_name}
