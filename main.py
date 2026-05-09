@@ -9,6 +9,8 @@ from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 
 from handlers.private_reg import router as reg_router
+from handlers.group_events import router as group_router
+from utils.database import init_db
 
 
 async def main():
@@ -23,13 +25,18 @@ async def main():
     if not token:
         return
 
+    # Инициализируем базу данных
+    await init_db()
+
     bot = Bot(
         token=token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
     dp = Dispatcher(storage=MemoryStorage())
 
+    # Подключаем роутеры (регистрация и события группы)
     dp.include_router(reg_router)
+    dp.include_router(group_router)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -41,7 +48,8 @@ async def main():
 
     logging.info("START")
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    # Передаем bot_id и resolve_used_update_types, чтобы ловить события группы
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 
 if __name__ == "__main__":
