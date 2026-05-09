@@ -3,17 +3,30 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-API_KEY = os.getenv("BS_API_KEY")
 
-# Получаем строку с тегами и разбиваем её по запятой в список
+# Делаем API_KEY глобальной переменной, чтобы её можно было менять "на лету"
+CURRENT_API_KEY = os.getenv("BS_API_KEY", "")
+
 tags_string = os.getenv("CLAN_TAGS", "")
-CLAN_TAGS = [tag.strip() for tag in tags_string.split(",")]
+CLAN_TAGS = [tag.strip() for tag in tags_string.split(",") if tag.strip()]
+
+
+# Функция для обновления ключа из Telegram
+def update_api_key(new_key: str):
+    global CURRENT_API_KEY
+    CURRENT_API_KEY = new_key
+
 
 async def check_player(player_tag: str):
-    # Очищаем тег от решетки и делаем заглавным
+    # Если ключа вдруг нет
+    if not CURRENT_API_KEY:
+        return {"success": False, "error": "api_key_missing"}
+
     clean_tag = player_tag.replace("#", "").upper()
     url = f"https://api.brawlstars.com/v1/players/%23{clean_tag}"
-    headers = {"Authorization": f"Bearer {API_KEY}"}
+
+    # Бот всегда будет использовать текущий актуальный ключ из памяти
+    headers = {"Authorization": f"Bearer {CURRENT_API_KEY}"}
 
     async with aiohttp.ClientSession() as session:
         try:
@@ -23,13 +36,15 @@ async def check_player(player_tag: str):
                     player_name = data.get("name", "Неизвестно")
                     club_tag = data.get("club", {}).get("tag", "")
 
-                    # Сравниваем тег клуба игрока: есть ли он в НАШЕМ СПИСКЕ
                     if club_tag in CLAN_TAGS:
                         return {"success": True, "status": "member", "name": player_name}
                     else:
                         return {"success": True, "status": "not_member", "name": player_name}
                 elif response.status == 404:
                     return {"success": False, "error": "not_found"}
+                elif response.status == 403:
+                    # Специальная ошибка, если ключ устарел из-за смены IP
+                    return {"success": False, "error": "forbidden_ip"}
                 else:
                     return {"success": False, "error": "api_error"}
         except Exception:
