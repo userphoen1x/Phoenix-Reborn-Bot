@@ -30,7 +30,7 @@ async def main():
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.ipify.org") as resp:
-                ip = (await client.get("https://api.ipify.org", timeout=5)).text
+                ip = await resp.text()
                 logging.info(f"🌍 МОЙ IP АДРЕС НА ХОСТИНГЕ: {ip}")
     except Exception as e:
         logging.error(f"Не удалось получить IP: {e}")
