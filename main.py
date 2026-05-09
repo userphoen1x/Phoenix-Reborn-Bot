@@ -25,7 +25,6 @@ async def main():
     if not token:
         return
 
-    # Инициализируем базу данных
     await init_db()
 
     bot = Bot(
@@ -34,7 +33,6 @@ async def main():
     )
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключаем роутеры (регистрация и события группы)
     dp.include_router(reg_router)
     dp.include_router(group_router)
 
@@ -48,8 +46,7 @@ async def main():
 
     logging.info("START")
     await bot.delete_webhook(drop_pending_updates=True)
-    # Передаем bot_id и resolve_used_update_types, чтобы ловить события группы
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    await dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"])
 
 
 if __name__ == "__main__":

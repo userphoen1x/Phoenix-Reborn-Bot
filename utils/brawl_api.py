@@ -29,10 +29,12 @@ async def check_player(player_tag: str):
                 if response.status == 200:
                     data = await response.json()
                     player_name = data.get("name", "Неизвестно")
-                    club_tag = data.get("club", {}).get("tag", "Без клуба")
+                    club_data = data.get("club", {})
+                    club_tag = club_data.get("tag", "Без клуба")
+                    club_name = club_data.get("name", "Phoenix Reborn")
 
                     if club_tag in CLAN_TAGS:
-                        return {"success": True, "status": "member", "name": player_name}
+                        return {"success": True, "status": "member", "name": player_name, "club_name": club_name}
                     else:
                         return {"success": True, "status": "not_member", "name": player_name}
 
