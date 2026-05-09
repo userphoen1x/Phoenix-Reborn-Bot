@@ -1,9 +1,11 @@
 import asyncio
 import logging
 import os
-import aiohttp  # <-- ДОБАВИЛИ ЭТУ СТРОКУ
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 from dotenv import load_dotenv
 
 from handlers.private_reg import router as reg_router
@@ -19,10 +21,12 @@ async def main():
 
     token = os.getenv("BOT_TOKEN")
     if not token:
-        logging.error("❌ BOT_TOKEN не найден!")
         return
 
-    bot = Bot(token=token)
+    bot = Bot(
+        token=token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
     dp = Dispatcher(storage=MemoryStorage())
 
     dp.include_router(reg_router)
@@ -31,20 +35,17 @@ async def main():
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.ipify.org") as resp:
                 ip = await resp.text()
-                logging.info(f"🌍 МОЙ IP АДРЕС НА ХОСТИНГЕ: {ip}")
-    except Exception as e:
-        logging.error(f"Не удалось получить IP: {e}")
-    # ----------------------------------------
+                logging.info(f"IP: {ip}")
+    except Exception:
+        pass
 
-    logging.info("🚀 Бот запущен!")
+    logging.info("START")
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
-
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logging.info("Остановлено")
+        pass
