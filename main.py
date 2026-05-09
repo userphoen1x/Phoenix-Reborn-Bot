@@ -27,7 +27,6 @@ async def main():
 
     dp.include_router(reg_router)
 
-    # --- ДОБАВИЛИ ЭТОТ БЛОК ДЛЯ ПОИСКА IP ---
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.ipify.org") as resp:
