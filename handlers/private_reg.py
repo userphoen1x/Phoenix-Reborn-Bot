@@ -3,7 +3,9 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from utils.brawl_api import check_player
+from utils.brawl_api import check_player, update_api_key
+
+ADMIN_ID = 1005735081
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -97,3 +99,28 @@ async def process_tag_input(message: Message, state: FSMContext):
 async def send_invite_link(callback: CallbackQuery):
     await callback.message.edit_text("🎉 Добро пожаловать в Phoenix Reborn!")
     await callback.answer()
+
+
+from aiogram.filters import Command
+
+
+@router.message(Command("set_key"))
+async def admin_set_api_key(message: Message):
+    # Проверка на админа
+    if message.from_user.id != ADMIN_ID:
+        return  # Если пишет кто-то чужой, бот просто проигнорирует
+
+    # Разбиваем сообщение, чтобы отделить команду от самого ключа
+    # Пример: /set_key eyJhbGciOiJIUzUxMiIsI...
+    parts = message.text.split(maxsplit=1)
+
+    if len(parts) < 2:
+        await message.answer("⚠️ Использование: `/set_key <твой_новый_длинный_ключ>`")
+        return
+
+    new_key = parts[1].strip()
+
+    # Вызываем функцию обновления
+    update_api_key(new_key)
+
+    await message.answer("✅ API ключ успешно обновлен в памяти бота!\nОшибок связи больше быть не должно.")
