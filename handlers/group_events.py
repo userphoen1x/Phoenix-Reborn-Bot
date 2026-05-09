@@ -62,7 +62,20 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
 async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
     admin_log_chat = os.getenv("ADMIN_ID")
+    target_chat = os.getenv("TARGET_CHAT_ID")
+    chat_id = event.chat.id
+
+    if not target_chat or str(chat_id) != str(target_chat):
+        return
+
     if admin_log_chat:
-        user = event.old_chat_member.user
-        await bot.send_message(admin_log_chat,
-                               f"🚪 <b>Выход из группы:</b>\n{user.full_name} (@{user.username}) покинул чат.")
+        user_id = event.old_chat_member.user.id
+        user_data = await get_user_data(user_id)
+
+        if user_data:
+            name, club, _ = user_data
+            leave_msg = f"Игрок <b>{name}</b> из клуба <b>{club}</b> вышел с чата"
+        else:
+            leave_msg = "Незарегестриванный в боте пользователь вышел из чата."
+
+        await bot.send_message(admin_log_chat, f"🚪 <b>Выход из группы:</b>\n{leave_msg}")
