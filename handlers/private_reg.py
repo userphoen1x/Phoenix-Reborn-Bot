@@ -51,7 +51,7 @@ async def process_reg_yes(callback: CallbackQuery, state: FSMContext):
         "Отлично! 📝 Пожалуйста, отправь мне свой **Тег** (например, #8P2QQG0) для идентификации.",
         parse_mode="Markdown"
     )
-    await state.set_state(Registration.w aiting_for_tag)
+    await state.set_state(Registration.waiting_for_tag)
     await callback.answer()
 
 
