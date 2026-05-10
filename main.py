@@ -12,6 +12,7 @@ from handlers.private_reg import router as reg_router
 from handlers.group_events import router as group_router
 from handlers.group_commands import router as group_cmds_router
 from utils.database import init_db
+from utils.scheduler import start_scheduler
 
 
 async def main():
@@ -27,6 +28,7 @@ async def main():
         return
 
     await init_db()
+    start_scheduler()
 
     bot = Bot(
         token=token,
