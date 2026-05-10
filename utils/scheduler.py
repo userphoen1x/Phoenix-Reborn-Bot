@@ -7,7 +7,7 @@ from utils.brawl_api import get_player_stats
 
 
 async def collect_daily_stats():
-    logging.info("Начинаю ночной сбор статистики Brawl Stars...")
+    logging.info("Начинаю быстрый ночной сбор статистики Brawl Stars...")
     tags = await get_all_approved_tags()
     today = date.today().isoformat()
 
@@ -24,7 +24,7 @@ async def collect_daily_stats():
                 rank_c=stats["rank_current"],
                 rank_h=stats["rank_highest"]
             )
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(0.05)
 
     logging.info("Сбор статистики завершен успешно!")
 
