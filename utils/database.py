@@ -219,3 +219,9 @@ async def get_top_absolute(column: str, tags_filter: list = None):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor:
             return await cursor.fetchall()
+
+async def get_tag_to_tg_map():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT bs_tag, user_id FROM users WHERE is_approved = 1") as cursor:
+            rows = await cursor.fetchall()
+            return {row[0]: row[1] for row in rows}
