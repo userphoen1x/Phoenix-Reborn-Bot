@@ -15,6 +15,29 @@ def update_api_key(new_key: str):
     CURRENT_API_KEY = new_key
 
 
+async def check_api_connection():
+    if not CURRENT_API_KEY:
+        return False, "❌ Ошибка: API ключ не установлен."
+    if not CLAN_TAGS:
+        return False, "❌ Ошибка: Теги кланов не настроены."
+
+    tag = CLAN_TAGS[0].replace("#", "")
+    url = f"https://api.brawlstars.com/v1/clubs/%23{tag}"
+    headers = {"Authorization": f"Bearer {CURRENT_API_KEY}"}
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    return True, "✅ Соединение с Supercell API установлено (200 OK). IP-адрес разрешен."
+                elif resp.status == 403:
+                    return False, "❌ Ошибка 403 (Forbidden): Доступ запрещен! Зайдите на портал разработчиков и обновите IP-адрес для ключа."
+                else:
+                    return False, f"⚠️ Неизвестная ошибка: Код {resp.status}"
+    except Exception as e:
+        return False, f"❌ Ошибка сетевого соединения: {e}"
+
+
 async def check_player(player_tag: str):
     if not CURRENT_API_KEY:
         return {"success": False, "error": "api_key_missing"}
@@ -73,16 +96,20 @@ async def get_player_stats(player_tag: str):
             return None
 
 
-async def get_all_club_members():
+async def get_all_club_members(specific_club: str = None):
     if not CURRENT_API_KEY:
         return []
 
     all_members = []
     headers = {"Authorization": f"Bearer {CURRENT_API_KEY}"}
 
+    tags_to_check = CLAN_TAGS
+    if specific_club and specific_club != "ALL":
+        tags_to_check = [specific_club]
+
     async with aiohttp.ClientSession() as session:
-        for c_tag in CLAN_TAGS:
-            clean_tag = c_tag.replace("#", "").upper()
+        for c_tag in tags_to_check:
+            clean_tag = c_tag.replace("#", "")
             url = f"https://api.brawlstars.com/v1/clubs/%23{clean_tag}"
             try:
                 async with session.get(url, headers=headers) as response:

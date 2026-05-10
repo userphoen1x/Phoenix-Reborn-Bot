@@ -4,7 +4,7 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from utils.brawl_api import check_player, update_api_key
+from utils.brawl_api import check_player, update_api_key, check_api_connection
 from utils.database import add_user, get_user_data, save_link
 
 router = Router()
@@ -56,6 +56,15 @@ async def admin_set_api_key(message: Message):
         return
     update_api_key(parts[1].strip())
     await message.answer("✅ API ключ успешно обновлен в памяти бота!")
+
+@router.message(Command("ping"))
+async def admin_ping(message: Message):
+    admin_id = os.getenv("ADMIN_ID")
+    if not admin_id or message.from_user.id != int(admin_id):
+        return
+    wait_msg = await message.answer("🔄 Проверяю связь с серверами Supercell...")
+    ok, text = await check_api_connection()
+    await wait_msg.edit_text(text)
 
 @router.message(Command("get_db"))
 async def admin_get_db(message: Message):
