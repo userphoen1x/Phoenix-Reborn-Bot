@@ -99,12 +99,48 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
     elif act == "wins_sd":
         await callback.message.edit_text("☠️ <b>Топ побед (Столкновение):</b>\nВыберите тип:",
                                          reply_markup=kb_wins_sd(uid))
+
+    # ----------------------------------------------------
+    # НОВАЯ ЛОГИКА: ЖИВОЙ СБОР ДЛЯ "ОБЩИХ КУБКОВ"
+    # ----------------------------------------------------
+    elif act == "cups_total":
+        await callback.message.edit_text("⏳ <b>Связываюсь с серверами Supercell...</b>")
+        from utils.brawl_api import get_all_club_members
+
+        members = await get_all_club_members()
+
+        if not members:
+            await callback.message.edit_text(
+                "❌ <b>Ошибка:</b> Не удалось получить данные клуба. Возможно, API ключ устарел или клубы пусты.",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="main", uid=uid).pack())]])
+            )
+            return
+
+        # Сортируем всех участников по кубкам (по убыванию) и берем 10 лучших
+        members.sort(key=lambda x: x["trophies"], reverse=True)
+        top_10 = members[:10]
+
+        text = "🏆 <b>ТОП 10 ПО ОБЩИМ КУБКАМ</b> (LIVE)\n\n"
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+        for i, m in enumerate(top_10):
+            text += f"{medals[i]} <b>{m['name']}</b> — {m['trophies']} 🏆\n"
+
+        await callback.message.edit_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 В главное меню", callback_data=TopCb(act="main", uid=uid).pack())]
+            ])
+        )
+
     else:
+        # Для остальных кнопок пока оставляем заглушку
         await callback.answer()
         await callback.message.edit_text(
             f"⚙️ <b>Сбор статистики...</b>\n\n"
             f"Интерфейс готов! Команда: <code>{act}</code>.\n"
-            "Осталось подключить фоновый сбор данных из Brawl Stars API.",
+            "Осталось подключить базу данных или парсер.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🔙 В главное меню", callback_data=TopCb(act="main", uid=uid).pack())]
             ])
