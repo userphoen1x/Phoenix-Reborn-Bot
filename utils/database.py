@@ -1,6 +1,7 @@
 import aiosqlite
+from datetime import date
 
-DB_NAME = "/app/data/bot_data.db"
+DB_NAME = "/app/data/bot_data_v2.db"
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
@@ -17,6 +18,28 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS links (
                 link TEXT PRIMARY KEY,
                 user_id INTEGER
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                user_id INTEGER,
+                chat_id INTEGER,
+                msg_date DATE,
+                msg_count INTEGER DEFAULT 1,
+                PRIMARY KEY (user_id, chat_id, msg_date)
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS bs_snapshots (
+                tag TEXT,
+                record_date DATE,
+                trophies INTEGER,
+                solo_wins INTEGER,
+                duo_wins INTEGER,
+                wins_3v3 INTEGER,
+                rank_current INTEGER,
+                rank_highest INTEGER,
+                PRIMARY KEY (tag, record_date)
             )
         """)
         await db.commit()
@@ -44,3 +67,14 @@ async def get_link_owner(link: str):
         async with db.execute("SELECT user_id FROM links WHERE link = ?", (link,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
+
+async def increment_message(user_id: int, chat_id: int):
+    today = date.today().isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("""
+            INSERT INTO messages (user_id, chat_id, msg_date, msg_count)
+            VALUES (?, ?, ?, 1)
+            ON CONFLICT(user_id, chat_id, msg_date) 
+            DO UPDATE SET msg_count = msg_count + 1
+        """, (user_id, chat_id, today))
+        await db.commit()

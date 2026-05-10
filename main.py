@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 
 from handlers.private_reg import router as reg_router
 from handlers.group_events import router as group_router
+from handlers.group_commands import router as group_cmds_router
 from utils.database import init_db
 
 
@@ -35,6 +36,7 @@ async def main():
 
     dp.include_router(reg_router)
     dp.include_router(group_router)
+    dp.include_router(group_cmds_router)
 
     try:
         async with aiohttp.ClientSession() as session:
