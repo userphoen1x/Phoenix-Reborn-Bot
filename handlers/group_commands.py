@@ -1,62 +1,73 @@
 import os
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters.callback_data import CallbackData
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 
-def kb_main_top():
+class TopCb(CallbackData, prefix="top"):
+    act: str
+    uid: int
+
+
+def kb_main_top(uid: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 По сообщениям", callback_data="top_msg")],
-        [InlineKeyboardButton(text="📈 Поднявшие кубки", callback_data="top_cups_gain")],
-        [InlineKeyboardButton(text="🏆 Общие кубки", callback_data="top_cups_total")],
-        [InlineKeyboardButton(text="🎖 Звания (Ранговые)", callback_data="top_ranks")],
-        [InlineKeyboardButton(text="⚔️ Выигранные игры", callback_data="top_wins")]
+        [InlineKeyboardButton(text="💬 По сообщениям", callback_data=TopCb(act="msg", uid=uid).pack())],
+        [InlineKeyboardButton(text="📈 Поднявшие кубки", callback_data=TopCb(act="cups_gain", uid=uid).pack())],
+        [InlineKeyboardButton(text="🏆 Общие кубки", callback_data=TopCb(act="cups_total", uid=uid).pack())],
+        [InlineKeyboardButton(text="🎖 Звания (Ранговые)", callback_data=TopCb(act="ranks", uid=uid).pack())],
+        [InlineKeyboardButton(text="⚔️ Выигранные игры", callback_data=TopCb(act="wins", uid=uid).pack())]
     ])
 
 
-def kb_timeframe(prefix: str, back_cb: str):
+def kb_timeframe(prefix: str, back_cb: str, uid: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="За день", callback_data=f"{prefix}_day"),
-         InlineKeyboardButton(text="За неделю", callback_data=f"{prefix}_week")],
-        [InlineKeyboardButton(text="За месяц", callback_data=f"{prefix}_month"),
-         InlineKeyboardButton(text="За всё время", callback_data=f"{prefix}_all")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=back_cb)]
+        [InlineKeyboardButton(text="За день", callback_data=TopCb(act=f"{prefix}_day", uid=uid).pack()),
+         InlineKeyboardButton(text="За неделю", callback_data=TopCb(act=f"{prefix}_week", uid=uid).pack())],
+        [InlineKeyboardButton(text="За месяц", callback_data=TopCb(act=f"{prefix}_month", uid=uid).pack()),
+         InlineKeyboardButton(text="За всё время", callback_data=TopCb(act=f"{prefix}_all", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act=back_cb, uid=uid).pack())]
     ])
 
 
-def kb_ranks():
+def kb_ranks(uid: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Актуальные", callback_data="top_ranks_current")],
-        [InlineKeyboardButton(text="Рекордные", callback_data="top_ranks_highest")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="top_main")]
+        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid).pack())],
+        [InlineKeyboardButton(text="Рекордные", callback_data=TopCb(act="ranks_high", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="main", uid=uid).pack())]
     ])
 
 
-def kb_wins_type():
+def kb_wins_type(uid: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="В сумме", callback_data="top_wins_total")],
-        [InlineKeyboardButton(text="3 на 3", callback_data="top_wins_3v3")],
-        [InlineKeyboardButton(text="Столкновение", callback_data="top_wins_sd")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="top_main")]
+        [InlineKeyboardButton(text="В сумме", callback_data=TopCb(act="wins_tot", uid=uid).pack())],
+        [InlineKeyboardButton(text="3 на 3", callback_data=TopCb(act="wins_3v3", uid=uid).pack())],
+        [InlineKeyboardButton(text="Столкновение", callback_data=TopCb(act="wins_sd", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="main", uid=uid).pack())]
     ])
 
 
-def kb_wins_sd():
+def kb_wins_sd(uid: int):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="В сумме", callback_data="top_wins_sd_total")],
-        [InlineKeyboardButton(text="Одиночное", callback_data="top_wins_sd_solo")],
-        [InlineKeyboardButton(text="Дуо", callback_data="top_wins_sd_duo")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data="top_wins")]
+        [InlineKeyboardButton(text="В сумме", callback_data=TopCb(act="wins_sd_tot", uid=uid).pack())],
+        [InlineKeyboardButton(text="Одиночное", callback_data=TopCb(act="wins_sd_solo", uid=uid).pack())],
+        [InlineKeyboardButton(text="Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="wins", uid=uid).pack())]
     ])
 
 
 @router.message(F.text.lower().in_({"топ", "топ 10", "топ10", "top", "top 10", "top10"}))
 async def cmd_top_trigger(message: Message):
-    target = message.reply_to_message.from_user.id if message.reply_to_message else message.from_user.id
+    user_id = message.from_user.id
+    target_msg_id = message.reply_to_message.message_id if message.reply_to_message else None
 
-    await message.answer("📊 <b>Выберите категорию для топа:</b>", reply_markup=kb_main_top())
+    await message.answer(
+        "📊 <b>Выберите категорию для топа:</b>",
+        reply_markup=kb_main_top(user_id),
+        reply_to_message_id=target_msg_id
+    )
 
     try:
         await message.delete()
@@ -64,36 +75,40 @@ async def cmd_top_trigger(message: Message):
         pass
 
 
-@router.callback_query(F.data == "top_main")
-async def cb_top_main(callback: CallbackQuery):
-    await callback.message.edit_text("📊 <b>Выберите категорию для топа:</b>", reply_markup=kb_main_top())
+@router.callback_query(TopCb.filter())
+async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
+    if callback.from_user.id != callback_data.uid:
+        await callback.answer("⚠️ Вы не можете управлять этим меню! Вызовите команду сами.", show_alert=True)
+        return
 
+    act = callback_data.act
+    uid = callback_data.uid
 
-@router.callback_query(F.data == "top_msg")
-async def cb_top_msg(callback: CallbackQuery):
-    await callback.message.edit_text("💬 <b>Топ по сообщениям:</b>\nВыберите период:",
-                                     reply_markup=kb_timeframe("top_msg", "top_main"))
-
-
-@router.callback_query(F.data == "top_cups_gain")
-async def cb_top_cups_gain(callback: CallbackQuery):
-    await callback.message.edit_text("📈 <b>Топ поднявших кубки:</b>\nВыберите период:",
-                                     reply_markup=kb_timeframe("top_cups_gain", "top_main"))
-
-
-@router.callback_query(F.data == "top_ranks")
-async def cb_top_ranks(callback: CallbackQuery):
-    await callback.message.edit_text("🎖 <b>Топ по званиям:</b>", reply_markup=kb_ranks())
-
-
-@router.callback_query(F.data == "top_wins")
-async def cb_top_wins(callback: CallbackQuery):
-    await callback.message.edit_text("⚔️ <b>Топ побед:</b>\nВыберите режим:", reply_markup=kb_wins_type())
-
-
-@router.callback_query(F.data == "top_wins_sd")
-async def cb_top_wins_sd(callback: CallbackQuery):
-    await callback.message.edit_text("☠️ <b>Топ побед (Столкновение):</b>\nВыберите тип:", reply_markup=kb_wins_sd())
+    if act == "main":
+        await callback.message.edit_text("📊 <b>Выберите категорию для топа:</b>", reply_markup=kb_main_top(uid))
+    elif act == "msg":
+        await callback.message.edit_text("💬 <b>Топ по сообщениям:</b>\nВыберите период:",
+                                         reply_markup=kb_timeframe("msg", "main", uid))
+    elif act == "cups_gain":
+        await callback.message.edit_text("📈 <b>Топ поднявших кубки:</b>\nВыберите период:",
+                                         reply_markup=kb_timeframe("cups_gain", "main", uid))
+    elif act == "ranks":
+        await callback.message.edit_text("🎖 <b>Топ по званиям:</b>", reply_markup=kb_ranks(uid))
+    elif act == "wins":
+        await callback.message.edit_text("⚔️ <b>Топ побед:</b>\nВыберите режим:", reply_markup=kb_wins_type(uid))
+    elif act == "wins_sd":
+        await callback.message.edit_text("☠️ <b>Топ побед (Столкновение):</b>\nВыберите тип:",
+                                         reply_markup=kb_wins_sd(uid))
+    else:
+        await callback.answer()
+        await callback.message.edit_text(
+            f"⚙️ <b>Сбор статистики...</b>\n\n"
+            f"Интерфейс готов! Команда: <code>{act}</code>.\n"
+            "Осталось подключить фоновый сбор данных из Brawl Stars API.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 В главное меню", callback_data=TopCb(act="main", uid=uid).pack())]
+            ])
+        )
 
 
 @router.message()
