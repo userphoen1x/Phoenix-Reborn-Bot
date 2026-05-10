@@ -2,21 +2,24 @@ import asyncio
 import logging
 from datetime import date
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from utils.database import get_all_approved_tags, save_snapshot
-from utils.brawl_api import get_player_stats
+from utils.brawl_api import get_all_club_members, get_player_stats
+from utils.database import save_snapshot
 
 
 async def collect_daily_stats():
-    logging.info("Начинаю быстрый ночной сбор статистики Brawl Stars...")
-    tags = await get_all_approved_tags()
+    logging.info("Начинаю ночной сбор статистики по ВСЕМ участникам клубов...")
+    members = await get_all_club_members()
     today = date.today().isoformat()
 
-    for tag in tags:
+    for m in members:
+        tag = m["tag"]
+        name = m["name"]
         stats = await get_player_stats(tag)
         if stats:
             await save_snapshot(
                 tag=tag,
-                date=today,
+                name=name,
+                dt=today,
                 trophies=stats["trophies"],
                 solo=stats["solo_wins"],
                 duo=stats["duo_wins"],

@@ -1,7 +1,7 @@
 import aiosqlite
-from datetime import date
+from datetime import date, timedelta
 
-DB_NAME = "/app/data/bot_data_v2.db"
+DB_NAME = "/app/data/bot_data_v3.db"
 
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
@@ -32,6 +32,7 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS bs_snapshots (
                 tag TEXT,
+                name TEXT,
                 record_date DATE,
                 trophies INTEGER,
                 solo_wins INTEGER,
@@ -79,17 +80,50 @@ async def increment_message(user_id: int, chat_id: int):
         """, (user_id, chat_id, today))
         await db.commit()
 
-async def get_all_approved_tags():
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT bs_tag FROM users WHERE is_approved = 1") as cursor:
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
-
-async def save_snapshot(tag: str, date: str, trophies: int, solo: int, duo: int, wins3v3: int, rank_c: int, rank_h: int):
+async def save_snapshot(tag: str, name: str, dt: str, trophies: int, solo: int, duo: int, wins3v3: int, rank_c: int, rank_h: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
             INSERT OR REPLACE INTO bs_snapshots 
-            (tag, record_date, trophies, solo_wins, duo_wins, wins_3v3, rank_current, rank_highest)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (tag, date, trophies, solo, duo, wins3v3, rank_c, rank_h))
+            (tag, name, record_date, trophies, solo_wins, duo_wins, wins_3v3, rank_current, rank_highest)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (tag, name, dt, trophies, solo, duo, wins3v3, rank_c, rank_h))
         await db.commit()
+
+# --- МАТЕМАТИКА ДЛЯ ТОПОВ ---
+
+async def get_top_messages(days=None):
+    async with aiosqlite.connect(DB_NAME) as db:
+        if days is None:
+            query = "SELECT u.player_name, SUM(m.msg_count) as total FROM messages m JOIN users u ON m.user_id = u.user_id GROUP BY m.user_id ORDER BY total DESC LIMIT 10"
+            async with db.execute(query) as cursor: return await cursor.fetchall()
+        else:
+            td = (date.today() - timedelta(days=days)).isoformat()
+            query = "SELECT u.player_name, SUM(m.msg_count) as total FROM messages m JOIN users u ON m.user_id = u.user_id WHERE m.msg_date >= ? GROUP BY m.user_id ORDER BY total DESC LIMIT 10"
+            async with db.execute(query, (td,)) as cursor: return await cursor.fetchall()
+
+async def get_top_gain(column: str, days: int):
+    td = (date.today() - timedelta(days=days)).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = f"""
+            SELECT name,
+                   (SELECT {column} FROM bs_snapshots WHERE tag = s.tag ORDER BY record_date DESC LIMIT 1) -
+                   (SELECT {column} FROM bs_snapshots WHERE tag = s.tag AND record_date >= ? ORDER BY record_date ASC LIMIT 1) as gain
+            FROM bs_snapshots s
+            GROUP BY tag
+            HAVING gain > 0
+            ORDER BY gain DESC LIMIT 10
+        """
+        async with db.execute(query, (td,)) as cursor:
+            return await cursor.fetchall()
+
+async def get_top_absolute(column: str):
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = f"""
+            SELECT name, ({column}) as val
+            FROM bs_snapshots s
+            WHERE record_date = (SELECT MAX(record_date) FROM bs_snapshots WHERE tag = s.tag)
+            GROUP BY tag
+            ORDER BY val DESC LIMIT 10
+        """
+        async with db.execute(query) as cursor:
+            return await cursor.fetchall()
