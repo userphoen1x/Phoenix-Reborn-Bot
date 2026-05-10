@@ -30,15 +30,15 @@ async def check_api_connection():
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
                 if resp.status == 200:
-                    return True, "✅ Соединение с Supercell API установлено (200 OK). IP-адрес разрешен."
+                    return True, "✅ Соединение с Supercell API установлено (200 OK)."
                 elif resp.status == 403:
-                    return False, "❌ Ошибка 403 (Forbidden): Доступ запрещен! Зайдите на портал разработчиков и обновите IP-адрес для ключа."
+                    return False, "❌ Ошибка 403 (Forbidden): Обновите IP в ключе на сайте разработчиков."
                 elif resp.status == 429:
-                    return False, "⚠️ Ошибка 429 (Too Many Requests): Supercell временно заблокировал бота за слишком частые запросы. Подождите пару минут."
+                    return False, "⚠️ Ошибка 429: Временный бан за спам. Подождите пару минут."
                 else:
                     return False, f"⚠️ Неизвестная ошибка: Код {resp.status}"
     except Exception as e:
-        return False, f"❌ Ошибка сетевого соединения: {e}"
+        return False, f"❌ Ошибка соединения: {e}"
 
 
 async def check_player(player_tag: str):
@@ -54,21 +54,14 @@ async def check_player(player_tag: str):
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    player_name = data.get("name", "Неизвестно")
                     club_data = data.get("club", {})
-                    club_tag = club_data.get("tag", "Без клуба")
-                    club_name = club_data.get("name", "Phoenix Reborn")
-
-                    if club_tag in CLAN_TAGS:
-                        return {"success": True, "status": "member", "name": player_name, "club_name": club_name}
-                    else:
-                        return {"success": True, "status": "not_member", "name": player_name}
-                elif response.status == 404:
-                    return {"success": False, "error": "not_found"}
-                elif response.status == 403:
-                    return {"success": False, "error": "forbidden_ip"}
-                else:
-                    return {"success": False, "error": "api_error"}
+                    return {
+                        "success": True,
+                        "status": "member" if club_data.get("tag") in CLAN_TAGS else "not_member",
+                        "name": data.get("name", "Неизвестно"),
+                        "club_name": club_data.get("name", "Phoenix Reborn")
+                    }
+                return {"success": False, "error": "api_error"}
         except Exception:
             return {"success": False, "error": "connection_error"}
 
@@ -86,13 +79,20 @@ async def get_player_stats(player_tag: str):
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
+
+                    # Пытаемся вытащить скрытые поля ранкеда
+                    ranked_current = data.get("highestRankedElo",
+                                              data.get("rankedElo", data.get("currentRankedElo", 0)))
+                    ranked_highest = data.get("highestRankedElo", data.get("highestRankedRank", 0))
+
                     return {
                         "trophies": data.get("trophies", 0),
                         "solo_wins": data.get("soloVictories", 0),
                         "duo_wins": data.get("duoVictories", 0),
                         "wins_3v3": data.get("3vs3Victories", 0),
-                        "rank_current": data.get("highestTrophies", 0),
-                        "rank_highest": data.get("highestTrophies", 0)
+                        "exp_level": data.get("expLevel", 0),
+                        "ranked_curr": ranked_current,
+                        "ranked_high": ranked_highest
                     }
                 return None
         except Exception:
@@ -101,15 +101,12 @@ async def get_player_stats(player_tag: str):
 
 async def get_all_club_members(specific_club: str = None):
     if not CURRENT_API_KEY:
-        return [], "Нет API ключа"
+        return [], "Нет ключа"
 
     all_members = []
     errors = []
     headers = {"Authorization": f"Bearer {CURRENT_API_KEY}"}
-
-    tags_to_check = CLAN_TAGS
-    if specific_club and specific_club != "ALL":
-        tags_to_check = [specific_club]
+    tags_to_check = [specific_club] if specific_club and specific_club != "ALL" else CLAN_TAGS
 
     async with aiohttp.ClientSession() as session:
         for c_tag in tags_to_check:
@@ -125,15 +122,34 @@ async def get_all_club_members(specific_club: str = None):
                                 "name": m.get("name"),
                                 "tag": m.get("tag"),
                                 "trophies": m.get("trophies", 0),
-                                "club": data.get("name")
                             })
                     else:
-                        errors.append(f"Код {response.status} ({clean_tag})")
+                        errors.append(f"Код {response.status}")
             except Exception as e:
-                errors.append(f"Ошибка: {str(e)}")
-
-            # Даже для клубов оставляем микро-паузу на всякий случай
+                errors.append(str(e))
             await asyncio.sleep(0.2)
 
-    err_str = " | ".join(errors) if errors else None
-    return all_members, err_str
+    return all_members, " | ".join(errors) if errors else None
+
+
+async def get_live_club_detailed_stats(specific_club: str = None):
+    all_members, err = await get_all_club_members(specific_club)
+    if not all_members:
+        return [], err
+
+    sem = asyncio.Semaphore(10)  # 10 профилей одновременно, чтобы не было кода 429
+
+    async def fetch_for_member(m):
+        async with sem:
+            await asyncio.sleep(0.1)
+            stats = await get_player_stats(m["tag"])
+            if stats:
+                m.update(stats)
+            else:
+                m.update(
+                    {"solo_wins": 0, "duo_wins": 0, "wins_3v3": 0, "exp_level": 0, "ranked_curr": 0, "ranked_high": 0})
+            return m
+
+    tasks = [fetch_for_member(m) for m in all_members]
+    detailed_members = await asyncio.gather(*tasks)
+    return detailed_members, err
