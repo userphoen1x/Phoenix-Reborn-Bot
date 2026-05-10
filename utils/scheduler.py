@@ -22,8 +22,8 @@ async def collect_daily_stats():
                 solo=stats["solo_wins"],
                 duo=stats["duo_wins"],
                 wins3v3=stats["wins_3v3"],
-                rank_c=stats.get("exp_level", 0),
-                rank_h=stats["highest_trophies"]
+                rank_c=stats.get("ranked_curr_rank", 0),
+                rank_h=0
             )
         await asyncio.sleep(1.0)
     logging.info("END SCAN")

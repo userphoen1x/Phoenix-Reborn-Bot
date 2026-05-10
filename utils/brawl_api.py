@@ -80,8 +80,10 @@ async def get_player_stats(player_tag: str):
                         "duo_wins": data.get("duoVictories", 0),
                         "wins_3v3": data.get("3vs3Victories", 0),
                         "highest_trophies": data.get("highestTrophies", 0),
-                        "ranked_curr": data.get("rankedRank", 0),
-                        "ranked_high": data.get("highestRankedRank", 0)
+                        "ranked_curr_rank": data.get("rankedRank", 0),
+                        "ranked_curr_elo": data.get("rankedElo", data.get("currentRankedElo", 0)),
+                        "ranked_high_rank": data.get("highestRankedRank", 0),
+                        "ranked_high_elo": data.get("highestRankedElo", 0)
                     }
                 return None
         except: return None
@@ -116,7 +118,7 @@ async def get_live_club_detailed_stats(specific_club: str = None):
             await asyncio.sleep(0.1)
             stats = await get_player_stats(m["tag"])
             if stats: m.update(stats)
-            else: m.update({"solo_wins": 0, "duo_wins": 0, "wins_3v3": 0, "highest_trophies": 0, "ranked_curr": 0, "ranked_high": 0})
+            else: m.update({"solo_wins": 0, "duo_wins": 0, "wins_3v3": 0, "highest_trophies": 0, "ranked_curr_rank": 0, "ranked_curr_elo": 0, "ranked_high_rank": 0, "ranked_high_elo": 0})
             return m
     tasks = [fetch_for_member(m) for m in all_members]
     detailed_members = await asyncio.gather(*tasks)

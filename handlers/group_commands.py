@@ -88,8 +88,8 @@ def kb_wins_sd(uid: int, c: str):
 
 def kb_ranks(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Текущий Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Рекордный Ранкед", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Рекордные", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
 
@@ -153,7 +153,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         for i, m in enumerate(members[:10]):
             tg_id = tg_map.get(m["tag"])
             name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
-            res += f"{i + 1}. {name_link} — {m['trophies']}\n"
+            res += f"{i + 1}. {name_link} - {m['trophies']}\n"
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
 
@@ -178,30 +178,41 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         is_ranked = act in ["ranks_curr", "ranks_high"]
 
         if act == "ranks_curr":
-            sort_key, title = lambda x: x.get("ranked_curr", 0), "Текущий Ранкед"
+            sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
+            title = "Текущий Ранкед"
         elif act == "ranks_high":
-            sort_key, title = lambda x: x.get("ranked_high", 0), "Рекордный Ранкед"
+            sort_key = lambda x: (x.get("ranked_high_rank", 0), x.get("ranked_high_elo", 0))
+            title = "Рекордный Ранкед"
         elif act == "wins_tot":
-            sort_key, title = lambda x: x.get("solo_wins", 0) + x.get("duo_wins", 0) + x.get("wins_3v3",
-                                                                                             0), "Всего побед"
+            sort_key = lambda x: x.get("solo_wins", 0) + x.get("duo_wins", 0) + x.get("wins_3v3", 0)
+            title = "Всего побед"
         elif act == "wins_3v3":
-            sort_key, title = lambda x: x.get("wins_3v3", 0), "Победы 3 на 3"
+            sort_key = lambda x: x.get("wins_3v3", 0)
+            title = "Победы 3 на 3"
         elif act == "wins_sd_solo":
-            sort_key, title = lambda x: x.get("solo_wins", 0), "Победы Соло"
+            sort_key = lambda x: x.get("solo_wins", 0)
+            title = "Победы Соло"
         elif act == "wins_sd_duo":
-            sort_key, title = lambda x: x.get("duo_wins", 0), "Победы Дуо"
+            sort_key = lambda x: x.get("duo_wins", 0)
+            title = "Победы Дуо"
 
         members.sort(key=sort_key, reverse=True)
         txt = f"<b>{title} (LIVE)</b>\n\n"
         for i, m in enumerate(members[:10]):
-            val = sort_key(m)
             tg_id = tg_map.get(m["tag"])
             name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
             if is_ranked:
-                r_name = get_rank_name(val)
-                txt += f"{i + 1}. {name_link} — {r_name}\n"
+                if act == "ranks_curr":
+                    r_val = m.get("ranked_curr_rank", 0)
+                    e_val = m.get("ranked_curr_elo", 0)
+                else:
+                    r_val = m.get("ranked_high_rank", 0)
+                    e_val = m.get("ranked_high_elo", 0)
+                r_name = get_rank_name(r_val)
+                txt += f"{i + 1}. {name_link} - {r_name} ({e_val})\n"
             else:
-                txt += f"{i + 1}. {name_link} — {val}\n"
+                val = sort_key(m)
+                txt += f"{i + 1}. {name_link} - {val}\n"
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back)
 
@@ -219,20 +230,20 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
                 data = await get_top_messages(d, tags_filter)
                 txt = "<b>Топ сообщений</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — {v}\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} - {v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
 
             elif act.startswith("cups_gain_"):
                 d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
                 data = await get_top_gain("trophies", d, tags_filter)
                 txt = "<b>Рост кубков</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — +{v}\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} - +{v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
 
             elif act == "cups_rec":
-                data = await get_top_absolute("rank_highest", tags_filter)
+                data = await get_top_absolute("trophies", tags_filter, use_max=True)
                 txt = "<b>Топ Общих Кубков (Все время)</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — {v}\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} - {v}\n"
                 await callback.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
 
