@@ -1,81 +1,121 @@
 import os
-from aiogram import Router, Bot
-from aiogram.types import ChatMemberUpdated
-from aiogram.filters import ChatMemberUpdatedFilter, IS_NOT_MEMBER, IS_MEMBER
-from utils.database import get_user_data, get_link_owner
+from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters.callback_data import CallbackData
 
 router = Router()
+router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 
-@router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
-async def on_user_join(event: ChatMemberUpdated, bot: Bot):
-    target_chat = os.getenv("TARGET_CHAT_ID")
-    admin_log_chat = os.getenv("ADMIN_ID")
-    user = event.new_chat_member.user
-    user_id = user.id
-    chat_id = event.chat.id
+class TopCb(CallbackData, prefix="top"):
+    act: str
+    uid: int
 
-    if not target_chat or str(chat_id) != str(target_chat):
+
+def kb_main_top(uid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 По сообщениям", callback_data=TopCb(act="msg", uid=uid).pack())],
+        [InlineKeyboardButton(text="📈 Поднявшие кубки", callback_data=TopCb(act="cups_gain", uid=uid).pack())],
+        [InlineKeyboardButton(text="🏆 Общие кубки", callback_data=TopCb(act="cups_total", uid=uid).pack())],
+        [InlineKeyboardButton(text="🎖 Звания (Ранговые)", callback_data=TopCb(act="ranks", uid=uid).pack())],
+        [InlineKeyboardButton(text="⚔️ Выигранные игры", callback_data=TopCb(act="wins", uid=uid).pack())]
+    ])
+
+
+def kb_timeframe(prefix: str, back_cb: str, uid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="За день", callback_data=TopCb(act=f"{prefix}_day", uid=uid).pack()),
+         InlineKeyboardButton(text="За неделю", callback_data=TopCb(act=f"{prefix}_week", uid=uid).pack())],
+        [InlineKeyboardButton(text="За месяц", callback_data=TopCb(act=f"{prefix}_month", uid=uid).pack()),
+         InlineKeyboardButton(text="За всё время", callback_data=TopCb(act=f"{prefix}_all", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act=back_cb, uid=uid).pack())]
+    ])
+
+
+def kb_ranks(uid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid).pack())],
+        [InlineKeyboardButton(text="Рекордные", callback_data=TopCb(act="ranks_high", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="main", uid=uid).pack())]
+    ])
+
+
+def kb_wins_type(uid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="В сумме", callback_data=TopCb(act="wins_tot", uid=uid).pack())],
+        [InlineKeyboardButton(text="3 на 3", callback_data=TopCb(act="wins_3v3", uid=uid).pack())],
+        [InlineKeyboardButton(text="Столкновение", callback_data=TopCb(act="wins_sd", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="main", uid=uid).pack())]
+    ])
+
+
+def kb_wins_sd(uid: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="В сумме", callback_data=TopCb(act="wins_sd_tot", uid=uid).pack())],
+        [InlineKeyboardButton(text="Одиночное", callback_data=TopCb(act="wins_sd_solo", uid=uid).pack())],
+        [InlineKeyboardButton(text="Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid).pack())],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="wins", uid=uid).pack())]
+    ])
+
+
+@router.message(F.text.lower().in_({"топ", "топ 10", "топ10", "top", "top 10", "top10"}))
+async def cmd_top_trigger(message: Message):
+    user_id = message.from_user.id
+    target_msg_id = message.reply_to_message.message_id if message.reply_to_message else None
+
+    await message.answer(
+        "📊 <b>Выберите категорию для топа:</b>",
+        reply_markup=kb_main_top(user_id),
+        reply_to_message_id=target_msg_id
+    )
+
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+@router.callback_query(TopCb.filter())
+async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
+    if callback.from_user.id != callback_data.uid:
+        await callback.answer("⚠️ Вы не можете управлять этим меню! Вызовите команду сами.", show_alert=True)
         return
 
-    admin_log = f"📝 <b>Лог входа:</b>\nЮзер: {user.full_name} (@{user.username}, ID: {user_id})\n"
+    act = callback_data.act
+    uid = callback_data.uid
 
-    if event.invite_link:
-        link_url = event.invite_link.invite_link
-        link_creator = event.invite_link.creator
-
-        if link_creator.id == bot.id:
-            original_requester_id = await get_link_owner(link_url)
-
-            if original_requester_id and original_requester_id != user_id:
-                await event.chat.ban(user_id)
-                await event.chat.unban(user_id)
-                await bot.send_message(chat_id, "Пользователь хотел зайти зайчиком в группу. Я его удалил.")
-
-                if admin_log_chat:
-                    admin_log += f"⚠️ <b>ПОПЫТКА ЗАЙЦА!</b>\nИспользовал ссылку, которую запросил ID: {original_requester_id}\nСтатус: Удален."
-                    await bot.send_message(admin_log_chat, admin_log)
-                return
-
-            user_data = await get_user_data(user_id)
-            if user_data:
-                name, club, _ = user_data
-                welcome_msg = f"Приветствуем новенького в чате! Это <b>{name}</b> из клуба <b>{club}</b>."
-                await bot.send_message(chat_id, welcome_msg)
-                admin_log += f"✅ Зашел по своей ссылке.\nИгрок: {name}\nКлуб: {club}"
-            else:
-                await event.chat.ban(user_id)
-                await event.chat.unban(user_id)
-                await bot.send_message(chat_id,
-                                       "Пользователь хотел зайти зайчиком в группу (нет в базе). Я его удалил.")
-                admin_log += "❌ Нет в базе данных. Удален."
-
-        else:
-            admin_log += f"🛡 Зашел по ссылке админа (@{link_creator.username})"
+    if act == "main":
+        await callback.message.edit_text("📊 <b>Выберите категорию для топа:</b>", reply_markup=kb_main_top(uid))
+    elif act == "msg":
+        await callback.message.edit_text("💬 <b>Топ по сообщениям:</b>\nВыберите период:",
+                                         reply_markup=kb_timeframe("msg", "main", uid))
+    elif act == "cups_gain":
+        await callback.message.edit_text("📈 <b>Топ поднявших кубки:</b>\nВыберите период:",
+                                         reply_markup=kb_timeframe("cups_gain", "main", uid))
+    elif act == "ranks":
+        await callback.message.edit_text("🎖 <b>Топ по званиям:</b>", reply_markup=kb_ranks(uid))
+    elif act == "wins":
+        await callback.message.edit_text("⚔️ <b>Топ побед:</b>\nВыберите режим:", reply_markup=kb_wins_type(uid))
+    elif act == "wins_sd":
+        await callback.message.edit_text("☠️ <b>Топ побед (Столкновение):</b>\nВыберите тип:",
+                                         reply_markup=kb_wins_sd(uid))
     else:
-        admin_log += "🛡 Добавлен админом напрямую."
+        await callback.answer()
+        await callback.message.edit_text(
+            f"⚙️ <b>Сбор статистики...</b>\n\n"
+            f"Интерфейс готов! Команда: <code>{act}</code>.\n"
+            "Осталось подключить фоновый сбор данных из Brawl Stars API.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 В главное меню", callback_data=TopCb(act="main", uid=uid).pack())]
+            ])
+        )
 
-    if admin_log_chat:
-        await bot.send_message(admin_log_chat, admin_log)
 
-
-@router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
-async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
-    admin_log_chat = os.getenv("ADMIN_ID")
-    target_chat = os.getenv("TARGET_CHAT_ID")
-    chat_id = event.chat.id
-
-    if not target_chat or str(chat_id) != str(target_chat):
-        return
-
-    if admin_log_chat:
-        user_id = event.old_chat_member.user.id
-        user_data = await get_user_data(user_id)
-
-        if user_data:
-            name, club, _ = user_data
-            leave_msg = f"Игрок <b>{name}</b> из клуба <b>{club}</b> вышел с чата"
-        else:
-            leave_msg = "Незарегестриванный в боте пользователь вышел из чата."
-
-        await bot.send_message(admin_log_chat, f"🚪 <b>Выход из группы:</b>\n{leave_msg}")
+@router.message()
+async def message_counter(message: Message):
+    if message.text:
+        text_lower = message.text.lower()
+        triggers = {"топ", "топ 10", "топ10", "top", "top 10", "top10"}
+        if text_lower not in triggers:
+            from utils.database import increment_message
+            await increment_message(message.from_user.id, message.chat.id)
