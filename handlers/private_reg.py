@@ -1,7 +1,7 @@
 import os
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from utils.brawl_api import check_player, update_api_key
@@ -67,6 +67,21 @@ async def admin_set_api_key(message: Message):
         return
     update_api_key(parts[1].strip())
     await message.answer("✅ API ключ успешно обновлен в памяти бота!")
+
+
+@router.message(Command("get_db"))
+async def admin_get_db(message: Message):
+    admin_id = os.getenv("ADMIN_ID")
+    if not admin_id or message.from_user.id != int(admin_id):
+        return  # Игнорируем всех, кроме админа
+
+    db_path = "/app/data/bot_data_v2.db"
+
+    if os.path.exists(db_path):
+        db_file = FSInputFile(db_path)
+        await message.answer_document(document=db_file, caption="📦 Держи актуальный бэкап базы данных!")
+    else:
+        await message.answer("❌ Файл базы данных пока не существует.")
 
 
 @router.message(Registration.waiting_for_tag)
