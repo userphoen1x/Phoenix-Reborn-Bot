@@ -46,7 +46,7 @@ def kb_main_top(uid: int, c: str):
         [InlineKeyboardButton(text="Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Общие кубки", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Ранкед", callback_data=TopCb(act="ranks", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
     ])
 
@@ -83,13 +83,6 @@ def kb_wins_sd(uid: int, c: str):
         [InlineKeyboardButton(text="Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack()),
          InlineKeyboardButton(text="Соло", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="wins", uid=uid, c=c).pack())]
-    ])
-
-
-def kb_ranks(uid: int, c: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
 
 
@@ -131,8 +124,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("<b>Рост кубков:</b>", reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
     elif act == "cups_menu":
         await callback.message.edit_text("<b>Общие кубки:</b>", reply_markup=kb_cups_type(uid, c))
-    elif act == "ranks":
-        await callback.message.edit_text("<b>Ранкед:</b>", reply_markup=kb_ranks(uid, c))
     elif act == "wins":
         await callback.message.edit_text("<b>Победы:</b>", reply_markup=kb_wins(uid, c))
     elif act == "wins_sd":
@@ -166,7 +157,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         elif act.startswith("wins_"):
             back_act = "wins"
         else:
-            back_act = "ranks"
+            back_act = "cat"
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
 
@@ -176,7 +167,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
         if act == "ranks_curr":
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
-            title = "Текущий Ранкед"
+            title = "Ранкед"
         elif act == "wins_tot":
             sort_key = lambda x: x.get("solo_wins", 0) + x.get("duo_wins", 0) + x.get("wins_3v3", 0)
             title = "Всего побед"
