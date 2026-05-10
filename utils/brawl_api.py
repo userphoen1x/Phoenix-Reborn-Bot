@@ -119,12 +119,12 @@ async def get_all_club_members(specific_club: str = None):
                 async with session.get(url, headers=headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        members = data.get("memberList", [])
+                        members = data.get("members", [])
                         for m in members:
                             all_members.append({
                                 "name": m.get("name"),
                                 "tag": m.get("tag"),
-                                "trophies": m.get("trophies"),
+                                "trophies": m.get("trophies", 0),
                                 "club": data.get("name")
                             })
                     else:
@@ -132,7 +132,7 @@ async def get_all_club_members(specific_club: str = None):
             except Exception as e:
                 errors.append(f"Ошибка: {str(e)}")
 
-            # Даже для клубов делаем минимальную паузу
+            # Даже для клубов оставляем микро-паузу на всякий случай
             await asyncio.sleep(0.2)
 
     err_str = " | ".join(errors) if errors else None
