@@ -37,7 +37,6 @@ async def check_player(player_tag: str):
                         return {"success": True, "status": "member", "name": player_name, "club_name": club_name}
                     else:
                         return {"success": True, "status": "not_member", "name": player_name}
-
                 elif response.status == 404:
                     return {"success": False, "error": "not_found"}
                 elif response.status == 403:

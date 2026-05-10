@@ -7,7 +7,7 @@ from utils.database import save_snapshot
 
 
 async def collect_daily_stats():
-    logging.info("Начинаю ночной сбор статистики по ВСЕМ участникам клубов...")
+    logging.info("START SCAN")
     members = await get_all_club_members()
     today = date.today().isoformat()
 
@@ -28,8 +28,7 @@ async def collect_daily_stats():
                 rank_h=stats["rank_highest"]
             )
         await asyncio.sleep(0.05)
-
-    logging.info("Сбор статистики завершен успешно!")
+    logging.info("END SCAN")
 
 
 def start_scheduler():

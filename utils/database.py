@@ -89,7 +89,11 @@ async def save_snapshot(tag: str, name: str, dt: str, trophies: int, solo: int, 
         """, (tag, name, dt, trophies, solo, duo, wins3v3, rank_c, rank_h))
         await db.commit()
 
-# --- МАТЕМАТИКА ДЛЯ ТОПОВ ---
+async def get_all_approved_tags():
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT bs_tag FROM users WHERE is_approved = 1") as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
 
 async def get_top_messages(days=None):
     async with aiosqlite.connect(DB_NAME) as db:
