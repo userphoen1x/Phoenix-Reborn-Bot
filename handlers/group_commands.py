@@ -148,7 +148,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
 
     elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
-        await callback.message.edit_text("Сбор профилей (10-15 сек)...")
+        await callback.message.edit_text("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
 

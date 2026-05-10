@@ -82,7 +82,7 @@ async def get_player_stats(player_tag: str):
                         "highest_trophies": data.get("highestTrophies", 0),
                         "ranked_curr_rank": data.get("rankedRank", 0),
                         "ranked_curr_elo": data.get("rankedElo", data.get("currentRankedElo", 0)),
-                        "ranked_high_rank": data.get("highestRankedRank", 0),
+                        "ranked_high_rank": data.get("highestRankedRank", data.get("highestRank", 0)),
                         "ranked_high_elo": data.get("highestRankedElo", 0)
                     }
                 return None
@@ -106,16 +106,16 @@ async def get_all_club_members(specific_club: str = None):
                         for m in members: all_members.append({"name": m.get("name"), "tag": m.get("tag"), "trophies": m.get("trophies", 0)})
                     else: errors.append(f"Код {response.status}")
             except Exception as e: errors.append(str(e))
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
     return all_members, " | ".join(errors) if errors else None
 
 async def get_live_club_detailed_stats(specific_club: str = None):
     all_members, err = await get_all_club_members(specific_club)
     if not all_members: return [], err
-    sem = asyncio.Semaphore(10)
+    sem = asyncio.Semaphore(20)
     async def fetch_for_member(m):
         async with sem:
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             stats = await get_player_stats(m["tag"])
             if stats: m.update(stats)
             else: m.update({"solo_wins": 0, "duo_wins": 0, "wins_3v3": 0, "highest_trophies": 0, "ranked_curr_rank": 0, "ranked_curr_elo": 0, "ranked_high_rank": 0, "ranked_high_elo": 0})

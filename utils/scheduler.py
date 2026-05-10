@@ -25,7 +25,7 @@ async def collect_daily_stats():
                 rank_c=stats.get("ranked_curr_rank", 0),
                 rank_h=0
             )
-        await asyncio.sleep(1.0)
+        await asyncio.sleep(0.05)
     logging.info("END SCAN")
 
 def start_scheduler():
