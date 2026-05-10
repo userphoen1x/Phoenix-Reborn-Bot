@@ -8,7 +8,7 @@ from utils.database import save_snapshot
 
 async def collect_daily_stats():
     logging.info("START SCAN")
-    members = await get_all_club_members()
+    members, _ = await get_all_club_members()
     today = date.today().isoformat()
 
     for m in members:
@@ -27,7 +27,8 @@ async def collect_daily_stats():
                 rank_c=stats["rank_current"],
                 rank_h=stats["rank_highest"]
             )
-        await asyncio.sleep(0.05)
+        # БЕЗОПАСНЫЙ РЕЖИМ (1 запрос в секунду)
+        await asyncio.sleep(1.0)
     logging.info("END SCAN")
 
 

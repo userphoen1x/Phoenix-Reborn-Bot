@@ -87,7 +87,7 @@ async def admin_force_scan(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id):
         return
-    await message.answer("🔄 Сбор данных...")
+    await message.answer("🔄 Сбор данных запущен. Это займет время (1 секунда на каждого игрока)...")
     from utils.scheduler import collect_daily_stats
     await collect_daily_stats()
     await message.answer("✅ Готово")
@@ -129,16 +129,23 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Сбор LIVE...")
-        members = await get_all_club_members(c)
+        from utils.brawl_api import get_all_club_members
+        members, err = await get_all_club_members(c)
+
         if not members:
-            await callback.message.edit_text("❌ Ошибка связи с API.", reply_markup=InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
+            err_msg = f"❌ Ошибка связи с API.\nДетали: {err}" if err else "❌ Ошибка: Клубы пусты или не найдены."
+            await callback.message.edit_text(err_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
             return
+
         members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
         res = f"🏆 <b>ТОП КУБКОВ (Текущие)</b>\n\n"
         for i, m in enumerate(members[:10]):
             res += f"{i + 1}. <b>{m['name']}</b> — {m['trophies']} 🏆\n"
+
+        if err:
+            res += f"\n⚠️ <i>Внимание, загружены не все клубы: {err}</i>"
+
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
 
@@ -149,10 +156,11 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         try:
             tags_filter = None
             if c != "ALL":
-                members = await get_all_club_members(c)
+                from utils.brawl_api import get_all_club_members
+                members, err = await get_all_club_members(c)
                 tags_filter = [m["tag"] for m in members]
                 if not tags_filter:
-                    await callback.message.edit_text("❌ Нет данных о клубе или ошибка API.", reply_markup=back)
+                    await callback.message.edit_text(f"❌ Нет данных о клубе.\nДетали: {err}", reply_markup=back)
                     return
 
             if act.startswith("msg_"):

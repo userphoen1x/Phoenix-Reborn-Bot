@@ -1,5 +1,6 @@
 import aiohttp
 import os
+import asyncio
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,6 +33,8 @@ async def check_api_connection():
                     return True, "✅ Соединение с Supercell API установлено (200 OK). IP-адрес разрешен."
                 elif resp.status == 403:
                     return False, "❌ Ошибка 403 (Forbidden): Доступ запрещен! Зайдите на портал разработчиков и обновите IP-адрес для ключа."
+                elif resp.status == 429:
+                    return False, "⚠️ Ошибка 429 (Too Many Requests): Supercell временно заблокировал бота за слишком частые запросы. Подождите пару минут."
                 else:
                     return False, f"⚠️ Неизвестная ошибка: Код {resp.status}"
     except Exception as e:
@@ -98,9 +101,10 @@ async def get_player_stats(player_tag: str):
 
 async def get_all_club_members(specific_club: str = None):
     if not CURRENT_API_KEY:
-        return []
+        return [], "Нет API ключа"
 
     all_members = []
+    errors = []
     headers = {"Authorization": f"Bearer {CURRENT_API_KEY}"}
 
     tags_to_check = CLAN_TAGS
@@ -123,6 +127,13 @@ async def get_all_club_members(specific_club: str = None):
                                 "trophies": m.get("trophies"),
                                 "club": data.get("name")
                             })
-            except Exception:
-                continue
-    return all_members
+                    else:
+                        errors.append(f"Код {response.status} ({clean_tag})")
+            except Exception as e:
+                errors.append(f"Ошибка: {str(e)}")
+
+            # Даже для клубов делаем минимальную паузу
+            await asyncio.sleep(0.2)
+
+    err_str = " | ".join(errors) if errors else None
+    return all_members, err_str
