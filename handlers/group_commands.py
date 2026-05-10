@@ -209,9 +209,9 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
             if act.startswith("msg_"):
                 d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
-                data = await get_top_messages(d, tags_filter)
-                txt = "<b>Топ сообщений</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} - {v}\n"
+                data = await get_top_messages(d)
+                txt = "<b>Топ сообщений чата</b>\n\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} ({v})\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
 
             elif act.startswith("cups_gain_"):
@@ -234,7 +234,10 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
 @router.message()
 async def message_counter(message: Message):
+    if message.from_user.is_bot:
+        return
     if message.text:
         if message.text.lower() not in {"топ", "топ 10", "топ10", "top", "top 10", "top10"}:
             from utils.database import increment_message
-            await increment_message(message.from_user.id, message.chat.id)
+            name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            await increment_message(message.from_user.id, message.chat.id, name)

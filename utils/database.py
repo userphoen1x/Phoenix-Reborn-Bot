@@ -15,6 +15,12 @@ async def init_db():
             )
         """)
         await db.execute("""
+            CREATE TABLE IF NOT EXISTS tg_profiles (
+                user_id INTEGER PRIMARY KEY,
+                full_name TEXT
+            )
+        """)
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS links (
                 link TEXT PRIMARY KEY,
                 user_id INTEGER
@@ -66,9 +72,10 @@ async def get_link_owner(link: str):
             row = await cursor.fetchone()
             return row[0] if row else None
 
-async def increment_message(user_id: int, chat_id: int):
+async def increment_message(user_id: int, chat_id: int, full_name: str):
     today = date.today().isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("INSERT OR REPLACE INTO tg_profiles (user_id, full_name) VALUES (?, ?)", (user_id, full_name))
         await db.execute("""
             INSERT INTO messages (user_id, chat_id, msg_date, msg_count)
             VALUES (?, ?, ?, 1)
@@ -91,20 +98,13 @@ async def get_all_approved_tags():
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
-async def get_top_messages(days=None, tags_filter: list = None):
-    if tags_filter is not None and len(tags_filter) == 0: return []
-    query = "SELECT u.player_name, SUM(m.msg_count) as total FROM messages m JOIN users u ON m.user_id = u.user_id "
+async def get_top_messages(days=None):
+    query = "SELECT t.full_name, SUM(m.msg_count) as total FROM messages m JOIN tg_profiles t ON m.user_id = t.user_id "
     params = []
-    conds = []
     if days is not None:
         td = (date.today() - timedelta(days=days)).isoformat()
-        conds.append("m.msg_date >= ?")
+        query += " WHERE m.msg_date >= ? "
         params.append(td)
-    if tags_filter:
-        placeholders = ",".join("?" for _ in tags_filter)
-        conds.append(f"u.bs_tag IN ({placeholders})")
-        params.extend(tags_filter)
-    if conds: query += " WHERE " + " AND ".join(conds)
     query += " GROUP BY m.user_id ORDER BY total DESC LIMIT 10"
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
@@ -128,13 +128,12 @@ async def get_top_gain(column: str, days: int, tags_filter: list = None):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
 
-async def get_top_absolute(column: str, tags_filter: list = None):
+async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool = False):
     if tags_filter is not None and len(tags_filter) == 0: return []
-    query = f"""
-        SELECT name, ({column}) as val
-        FROM bs_snapshots s
-        WHERE record_date = (SELECT MAX(record_date) FROM bs_snapshots WHERE tag = s.tag)
-    """
+    if use_max:
+        query = f"SELECT name, MAX({column}) as val FROM bs_snapshots s WHERE 1=1"
+    else:
+        query = f"SELECT name, ({column}) as val FROM bs_snapshots s WHERE record_date = (SELECT MAX(record_date) FROM bs_snapshots WHERE tag = s.tag)"
     params = []
     if tags_filter:
         placeholders = ",".join("?" for _ in tags_filter)
