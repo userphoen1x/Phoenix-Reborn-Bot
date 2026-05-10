@@ -9,148 +9,177 @@ from utils.database import get_top_messages, get_top_gain, get_top_absolute, get
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
+
 class TopCb(CallbackData, prefix="top"):
     act: str
     uid: int
     c: str
 
+
+def get_rank_name(elo: int):
+    if elo <= 0: return "Без ранга"
+    if elo >= 9000: return "Мастера"
+    ranks = ["Бронза", "Серебро", "Золото", "Алмаз", "Мифик", "Легенда"]
+    main_idx = min(elo // 1500, 5)
+    sub_rank = ((elo % 1500) // 500) + 1
+    roman = ["I", "II", "III"][sub_rank - 1]
+    return f"{ranks[main_idx]} {roman}"
+
+
 async def kb_choose_club(uid: int):
     clan_names = await get_clan_names()
-    buttons = [[InlineKeyboardButton(text="🌐 Статистика семейства", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]
+    buttons = [
+        [InlineKeyboardButton(text="Статистика семейства", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]
     for tag, name in clan_names.items():
         clean = tag.replace("#", "")
-        buttons.append([InlineKeyboardButton(text=f"Клуб {name}", callback_data=TopCb(act="cat", uid=uid, c=clean).pack())])
+        buttons.append([InlineKeyboardButton(text=f"{name}", callback_data=TopCb(act="cat", uid=uid, c=clean).pack())])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 def kb_main_top(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="📈 Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🏆 Кубки (LIVE)", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🎖 Рекорды и Уровень (LIVE)", callback_data=TopCb(act="ranks", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="⚔️ Победы (LIVE)", callback_data=TopCb(act="wins", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🔙 Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
+        [InlineKeyboardButton(text="Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Общие кубки", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Ранкед", callback_data=TopCb(act="ranks", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
     ])
+
 
 def kb_timeframe(prefix: str, back: str, uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="День", callback_data=TopCb(act=f"{prefix}_day", uid=uid, c=c).pack()),
          InlineKeyboardButton(text="Неделя", callback_data=TopCb(act=f"{prefix}_week", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Месяц", callback_data=TopCb(act=f"{prefix}_month", uid=uid, c=c).pack()),
-         InlineKeyboardButton(text="Всё", callback_data=TopCb(act=f"{prefix}_all", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act=back, uid=uid, c=c).pack())]
+         InlineKeyboardButton(text="Все время", callback_data=TopCb(act=f"{prefix}_all", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act=back, uid=uid, c=c).pack())]
     ])
 
-def kb_ranks(uid: int, c: str):
+
+def kb_cups_type(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Рекордные кубки (Max)", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Уровень аккаунта (EXP)", callback_data=TopCb(act="ranks_exp", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
+        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Все", callback_data=TopCb(act="cups_rec", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
+
 
 def kb_wins(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="В сумме", callback_data=TopCb(act="wins_tot", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="3 на 3", callback_data=TopCb(act="wins_3v3", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Все Столкновения", callback_data=TopCb(act="wins_sd_tot", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Соло ШД", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Дуо ШД", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
+        [InlineKeyboardButton(text="ШД", callback_data=TopCb(act="wins_sd", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
+
+
+def kb_wins_sd(uid: int, c: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="Соло", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="wins", uid=uid, c=c).pack())]
+    ])
+
+
+def kb_ranks(uid: int, c: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Рекордные", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
+    ])
+
 
 @router.message(Command("force_scan"))
 async def admin_force_scan(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id): return
-    await message.answer("🔄 Сбор данных запущен. Это займет время...")
+    await message.answer("Сбор данных запущен...")
     from utils.scheduler import collect_daily_stats
     await collect_daily_stats()
-    await message.answer("✅ Готово")
+    await message.answer("Готово")
+
 
 @router.message(F.text.lower().in_({"топ", "топ 10", "топ10", "top", "top 10", "top10"}))
 async def cmd_top_trigger(message: Message):
     kb = await kb_choose_club(message.from_user.id)
-    await message.answer("🏢 <b>Выберите клуб:</b>", reply_markup=kb)
-    try: await message.delete()
-    except: pass
+    await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
+    try:
+        await message.delete()
+    except:
+        pass
+
 
 @router.callback_query(TopCb.filter())
 async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
     if callback.from_user.id != callback_data.uid:
-        await callback.answer("⚠️ Не твое меню", show_alert=True)
+        await callback.answer("Не твое меню", show_alert=True)
         return
     act, uid, c = callback_data.act, callback_data.uid, callback_data.c
+
     if act == "main":
         kb = await kb_choose_club(uid)
-        await callback.message.edit_text("🏢 <b>Выберите клуб:</b>", reply_markup=kb)
-    elif act == "cat": await callback.message.edit_text("📊 <b>Категория:</b>", reply_markup=kb_main_top(uid, c))
-    elif act == "msg": await callback.message.edit_text("💬 <b>Сообщения:</b>", reply_markup=kb_timeframe("msg", "cat", uid, c))
-    elif act == "cups_gain": await callback.message.edit_text("📈 <b>Рост кубков:</b>", reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
-    elif act == "ranks": await callback.message.edit_text("🎖 <b>Рекорды и Уровень:</b>", reply_markup=kb_ranks(uid, c))
-    elif act == "wins": await callback.message.edit_text("⚔️ <b>Победы:</b>", reply_markup=kb_wins(uid, c))
+        await callback.message.edit_text("<b>Выберите клуб:</b>", reply_markup=kb)
+    elif act == "cat":
+        await callback.message.edit_text("<b>Категория:</b>", reply_markup=kb_main_top(uid, c))
+    elif act == "msg":
+        await callback.message.edit_text("<b>Сообщения:</b>", reply_markup=kb_timeframe("msg", "cat", uid, c))
+    elif act == "cups_gain":
+        await callback.message.edit_text("<b>Рост кубков:</b>", reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
+    elif act == "cups_menu":
+        await callback.message.edit_text("<b>Общие кубки:</b>", reply_markup=kb_cups_type(uid, c))
+    elif act == "ranks":
+        await callback.message.edit_text("<b>Ранкед:</b>", reply_markup=kb_ranks(uid, c))
+    elif act == "wins":
+        await callback.message.edit_text("<b>Победы:</b>", reply_markup=kb_wins(uid, c))
+    elif act == "wins_sd":
+        await callback.message.edit_text("<b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
+
     elif act == "cups_cur":
-        await callback.message.edit_text("⏳ Сбор LIVE...")
+        await callback.message.edit_text("Сбор LIVE...")
         members, err = await get_all_club_members(c)
         if not members:
-            await callback.message.edit_text("❌ Ошибка API.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]))
+            err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
+            await callback.message.edit_text(err_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
             return
         members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
         tg_map = await get_tag_to_tg_map()
-        res = f"🏆 <b>ТОП КУБКОВ (LIVE)</b>\n\n"
+        res = f"<b>ТОП КУБКОВ (Актуальные)</b>\n\n"
         for i, m in enumerate(members[:10]):
             tg_id = tg_map.get(m["tag"])
             name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
-            res += f"{i+1}. {name_link} — {m['trophies']} 🏆\n"
-        await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]))
-    elif act in ["wins_tot", "wins_3v3", "wins_sd_tot", "wins_sd_solo", "wins_sd_duo", "ranks_high", "ranks_exp"]:
-        await callback.message.edit_text("⏳ Сбор профилей (10-15 сек)...")
+            res += f"{i + 1}. {name_link} — {m['trophies']}\n"
+        await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
+
+    elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr", "ranks_high"]:
+        await callback.message.edit_text("Сбор профилей (10-15 сек)...")
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
-        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
-        if not members:
-            await callback.message.edit_text("❌ Ошибка.", reply_markup=back)
-            return
-        if act == "ranks_high": sort_key, title, suffix = lambda x: x.get("highest_trophies", 0), "Рекордные кубки", "🏆"
-        elif act == "ranks_exp": sort_key, title, suffix = lambda x: x.get("exp_level", 0), "Уровень аккаунта", "LVL"
-        elif act == "wins_tot": sort_key, title, suffix = lambda x: x.get("solo_wins",0) + x.get("duo_wins",0) + x.get("wins_3v3",0), "Всего побед", "⚔️"
-        elif act == "wins_3v3": sort_key, title, suffix = lambda x: x.get("wins_3v3",0), "Победы 3 на 3", "⚔️"
-        elif act == "wins_sd_tot": sort_key, title, suffix = lambda x: x.get("solo_wins",0) + x.get("duo_wins",0), "Все Столкновения", "☠️"
-        elif act == "wins_sd_solo": sort_key, title, suffix = lambda x: x.get("solo_wins",0), "Победы Соло", "☠️"
-        elif act == "wins_sd_duo": sort_key, title, suffix = lambda x: x.get("duo_wins",0), "Победы Дуо", "☠️"
-        members.sort(key=sort_key, reverse=True)
-        txt = f"📊 <b>{title} (LIVE)</b>\n\n"
-        for i, m in enumerate(members[:10]):
-            val = sort_key(m)
-            tg_id = tg_map.get(m["tag"])
-            name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
-            txt += f"{i+1}. {name_link} — {val} {suffix}\n"
-        if err: txt += f"\n⚠️ <i>Ошибки: {err}</i>"
-        await callback.message.edit_text(txt, reply_markup=back)
-    else:
-        await callback.message.edit_text("⏳ Расчет...")
-        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
-        try:
-            tags_filter = None
-            if c != "ALL":
-                members, err = await get_all_club_members(c)
-                tags_filter = [m["tag"] for m in members]
-            if act.startswith("msg_"):
-                d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
-                data = await get_top_messages(d, tags_filter)
-                txt = "📊 <b>Топ сообщений</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i+1}. {n} — {v}\n"
-                await callback.message.edit_text(txt, reply_markup=back)
-            elif act.startswith("cups_gain_"):
-                d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
-                data = await get_top_gain("trophies", d, tags_filter)
-                txt = "📈 <b>Рост кубков</b>\n\n"
-                for i, (n, v) in enumerate(data): txt += f"{i+1}. {n} — +{v} 🏆\n"
-                await callback.message.edit_text(txt, reply_markup=back)
-        except: await callback.message.edit_text("❌ Ошибка", reply_markup=back)
 
-@router.message()
-async def message_counter(message: Message):
-    if message.text:
-        if message.text.lower() not in {"топ", "топ 10", "топ10", "top", "top 10", "top10"}:
-            from utils.database import increment_message
-            await increment_message(message.from_user.id, message.chat.id)
+        if act.startswith("wins_sd_"):
+            back_act = "wins_sd"
+        elif act.startswith("wins_"):
+            back_act = "wins"
+        else:
+            back_act = "ranks"
+        back = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
+
+        if not members:
+            await callback.message.edit_text("Ошибка.", reply_markup=back)
+            return
+
+        is_ranked = act in ["ranks_curr", "ranks_high"]
+
+        if act == "ranks_curr":
+            sort_key, title = lambda x: x.get("ranked_curr", 0), "Текущий Ранкед"
+        elif act == "ranks_high":
+            sort_key, title = lambda x: x.get("ranked_high", 0), "Рекордный Ранкед"
+        elif act == "wins_tot":
+            sort_key, title = lambda x: x.get("solo_wins", 0) + x.get("duo_wins", 0) + x.get("wins_3v3",
+                                                                                             0), "Всего побед"
+        elif act == "wins_3v3":
+            sort_key, title = lambda x: x.get("wins_3v3", 0), "Победы 3 на 3"
+        elif act == "wins_
