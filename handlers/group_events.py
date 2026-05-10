@@ -12,8 +12,7 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
     admin_log_chat = os.getenv("ADMIN_ID")
     user = event.new_chat_member.user
     user_id = user.id
-    if not target_chat or str(event.chat.id) != str(target_chat):
-        return
+    if not target_chat or str(event.chat.id) != str(target_chat): return
     log = f"📝 <b>Лог входа:</b>\nЮзер: {user.full_name} (@{user.username}, ID: {user_id})\n"
     if event.invite_link:
         link_url = event.invite_link.invite_link
@@ -24,8 +23,7 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
                 await event.chat.ban(user_id)
                 await event.chat.unban(user_id)
                 await bot.send_message(event.chat.id, "Заяц удален.")
-                if admin_log_chat:
-                    await bot.send_message(admin_log_chat, log + f"⚠️ Заяц от ID: {owner_id}")
+                if admin_log_chat: await bot.send_message(admin_log_chat, log + f"⚠️ Заяц от ID: {owner_id}")
                 return
             data = await get_user_data(user_id)
             if data:
@@ -36,19 +34,15 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
                 await event.chat.unban(user_id)
                 await bot.send_message(event.chat.id, "Заяц (нет в базе) удален.")
                 log += "❌ Нет в базе."
-        else:
-            log += f"🛡 Админ-ссылка (@{creator.username})"
-    else:
-        log += "🛡 Напрямую."
-    if admin_log_chat:
-        await bot.send_message(admin_log_chat, log)
+        else: log += f"🛡 Админ-ссылка (@{creator.username})"
+    else: log += "🛡 Напрямую."
+    if admin_log_chat: await bot.send_message(admin_log_chat, log)
 
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
 async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
     admin_log_chat = os.getenv("ADMIN_ID")
     target_chat = os.getenv("TARGET_CHAT_ID")
-    if not target_chat or str(event.chat.id) != str(target_chat):
-        return
+    if not target_chat or str(event.chat.id) != str(target_chat): return
     if admin_log_chat:
         user_id = event.old_chat_member.user.id
         data = await get_user_data(user_id)

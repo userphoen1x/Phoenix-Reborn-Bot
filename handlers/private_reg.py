@@ -33,8 +33,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
         return
     user_data = await get_user_data(user_id)
     if status in ["member", "administrator", "creator"]:
-        if user_data:
-            await message.answer(f"✅ Твой профиль: <b>{user_data[0]}</b> из ({user_data[1]}).")
+        if user_data: await message.answer(f"✅ Твой профиль: <b>{user_data[0]}</b> из ({user_data[1]}).")
         else:
             await message.answer("👋 Привет! Ты уже в группе, но тег не привязан. Напиши свой <b>Тег</b>:")
             await state.set_state(Registration.waiting_for_tag)
@@ -48,8 +47,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
 @router.message(Command("set_key"))
 async def admin_set_api_key(message: Message):
     admin_id = os.getenv("ADMIN_ID")
-    if not admin_id or message.from_user.id != int(admin_id):
-        return
+    if not admin_id or message.from_user.id != int(admin_id): return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("⚠️ Использование: /set_key <ключ>")
@@ -60,8 +58,7 @@ async def admin_set_api_key(message: Message):
 @router.message(Command("ping"))
 async def admin_ping(message: Message):
     admin_id = os.getenv("ADMIN_ID")
-    if not admin_id or message.from_user.id != int(admin_id):
-        return
+    if not admin_id or message.from_user.id != int(admin_id): return
     wait_msg = await message.answer("🔄 Проверяю связь с серверами Supercell...")
     ok, text = await check_api_connection()
     await wait_msg.edit_text(text)
@@ -69,13 +66,10 @@ async def admin_ping(message: Message):
 @router.message(Command("get_db"))
 async def admin_get_db(message: Message):
     admin_id = os.getenv("ADMIN_ID")
-    if not admin_id or message.from_user.id != int(admin_id):
-        return
+    if not admin_id or message.from_user.id != int(admin_id): return
     db_path = "/app/data/bot_data_v3.db"
-    if os.path.exists(db_path):
-        await message.answer_document(document=FSInputFile(db_path), caption="📦 База данных")
-    else:
-        await message.answer("❌ Файл не найден")
+    if os.path.exists(db_path): await message.answer_document(document=FSInputFile(db_path), caption="📦 База данных")
+    else: await message.answer("❌ Файл не найден")
 
 @router.message(Registration.waiting_for_tag)
 async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
@@ -96,11 +90,7 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
         if status in ["member", "administrator", "creator"]:
             await wait_msg.edit_text(f"✅ <b>Идентификация пройдена!</b>\nТег {user_tag} привязан.")
         else:
-            rules = (
-                f"✅ Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n"
-                " Нельзя\n1. 18+ контент\n2. Спам\n3. Оскорбления\n4. Реклама\n5. Политика\n6. Доксинг\n7. Конфликты\n8. Попрошайничество\n"
-                " Можно: Мат в меру, мемы\n Наказания: Варн/Мут/Бан"
-            )
+            rules = f"✅ Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n Нельзя\n1. 18+ контент\n2. Спам\n3. Оскорбления\n4. Реклама\n5. Политика\n6. Доксинг\n7. Конфликты\n8. Попрошайничество\n Можно: Мат в меру, мемы\n Наказания: Варн/Мут/Бан"
             await wait_msg.edit_text(rules, reply_markup=get_rules_kb())
         await state.clear()
     else:
