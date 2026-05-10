@@ -182,4 +182,63 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                                                                                              0), "Всего побед"
         elif act == "wins_3v3":
             sort_key, title = lambda x: x.get("wins_3v3", 0), "Победы 3 на 3"
-        elif act == "wins_
+        elif act == "wins_sd_solo":
+            sort_key, title = lambda x: x.get("solo_wins", 0), "Победы Соло"
+        elif act == "wins_sd_duo":
+            sort_key, title = lambda x: x.get("duo_wins", 0), "Победы Дуо"
+
+        members.sort(key=sort_key, reverse=True)
+        txt = f"<b>{title} (LIVE)</b>\n\n"
+        for i, m in enumerate(members[:10]):
+            val = sort_key(m)
+            tg_id = tg_map.get(m["tag"])
+            name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
+            if is_ranked:
+                r_name = get_rank_name(val)
+                txt += f"{i + 1}. {name_link} — {r_name} ({val})\n"
+            else:
+                txt += f"{i + 1}. {name_link} — {val}\n"
+        if err: txt += f"\nОшибки: {err}"
+        await callback.message.edit_text(txt, reply_markup=back)
+
+    else:
+        await callback.message.edit_text("Расчет...")
+        back = InlineKeyboardMarkup(
+            inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
+        try:
+            tags_filter = None
+            if c != "ALL":
+                members, err = await get_all_club_members(c)
+                tags_filter = [m["tag"] for m in members]
+
+            if act.startswith("msg_"):
+                d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
+                data = await get_top_messages(d, tags_filter)
+                txt = "<b>Топ сообщений</b>\n\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — {v}\n"
+                await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
+
+            elif act.startswith("cups_gain_"):
+                d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
+                data = await get_top_gain("trophies", d, tags_filter)
+                txt = "<b>Рост кубков</b>\n\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — +{v}\n"
+                await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
+
+            elif act == "cups_rec":
+                data = await get_top_absolute("rank_highest", tags_filter)
+                txt = "<b>Топ Общих Кубков (Все время)</b>\n\n"
+                for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} — {v}\n"
+                await callback.message.edit_text(txt, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cups_menu", uid=uid, c=c).pack())]]))
+
+        except:
+            await callback.message.edit_text("Ошибка вычислений", reply_markup=back)
+
+
+@router.message()
+async def message_counter(message: Message):
+    if message.text:
+        if message.text.lower() not in {"топ", "топ 10", "топ10", "top", "top 10", "top10"}:
+            from utils.database import increment_message
+            await increment_message(message.from_user.id, message.chat.id)
