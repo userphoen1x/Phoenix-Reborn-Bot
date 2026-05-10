@@ -125,6 +125,9 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
 
         for i, m in enumerate(top_10):
+            # Защита от ситуации, если людей меньше 10
+            if i >= len(medals):
+                break
             text += f"{medals[i]} <b>{m['name']}</b> — {m['trophies']} 🏆\n"
 
         await callback.message.edit_text(
@@ -135,7 +138,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         )
 
     else:
-        # Для остальных кнопок пока оставляем заглушку
         await callback.answer()
         await callback.message.edit_text(
             f"⚙️ <b>Сбор статистики...</b>\n\n"
