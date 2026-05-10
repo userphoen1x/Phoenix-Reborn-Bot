@@ -43,7 +43,7 @@ async def check_api_connection():
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as resp:
-                if resp.status == 200: return True, "Соединение с Supercell API установлено (200 OK). IP-адрес разрешен."
+                if resp.status == 200: return True, "Соединение с Supercell API установлено (200 OK)."
                 elif resp.status == 403: return False, "Ошибка 403 (Forbidden): Обновите IP в ключе."
                 elif resp.status == 429: return False, "Ошибка 429: Временный бан за спам."
                 return False, f"Ошибка: Код {resp.status}"
@@ -74,16 +74,14 @@ async def get_player_stats(player_tag: str):
             async with session.get(url, headers=headers) as response:
                 if response.status == 200:
                     data = await response.json()
-                    ranked_curr = data.get("highestRankedElo", data.get("currentRankedElo", 0))
-                    ranked_high = data.get("highestRankedElo", 0)
                     return {
                         "trophies": data.get("trophies", 0),
                         "solo_wins": data.get("soloVictories", 0),
                         "duo_wins": data.get("duoVictories", 0),
                         "wins_3v3": data.get("3vs3Victories", 0),
                         "highest_trophies": data.get("highestTrophies", 0),
-                        "ranked_curr": ranked_curr,
-                        "ranked_high": ranked_high
+                        "ranked_curr": data.get("rankedRank", 0),
+                        "ranked_high": data.get("highestRankedRank", 0)
                     }
                 return None
         except: return None

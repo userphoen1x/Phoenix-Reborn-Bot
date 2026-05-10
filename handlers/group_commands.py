@@ -16,14 +16,18 @@ class TopCb(CallbackData, prefix="top"):
     c: str
 
 
-def get_rank_name(elo: int):
-    if elo <= 0: return "Без ранга"
-    if elo >= 9000: return "Мастера"
-    ranks = ["Бронза", "Серебро", "Золото", "Алмаз", "Мифик", "Легенда"]
-    main_idx = min(elo // 1500, 5)
-    sub_rank = ((elo % 1500) // 500) + 1
-    roman = ["I", "II", "III"][sub_rank - 1]
-    return f"{ranks[main_idx]} {roman}"
+def get_rank_name(val: int):
+    ranks = {
+        1: "Bronze I", 2: "Bronze II", 3: "Bronze III",
+        4: "Silver I", 5: "Silver II", 6: "Silver III",
+        7: "Gold I", 8: "Gold II", 9: "Gold III",
+        10: "Diamond I", 11: "Diamond II", 12: "Diamond III",
+        13: "Mythic I", 14: "Mythic II", 15: "Mythic III",
+        16: "Legendary I", 17: "Legendary II", 18: "Legendary III",
+        19: "Master I", 20: "Master II", 21: "Master III",
+        22: "PRO"
+    }
+    return ranks.get(val, "Без ранга")
 
 
 async def kb_choose_club(uid: int):
@@ -84,8 +88,8 @@ def kb_wins_sd(uid: int, c: str):
 
 def kb_ranks(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Актуальные", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Рекордные", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Текущий Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Рекордный Ранкед", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
 
@@ -195,7 +199,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
             if is_ranked:
                 r_name = get_rank_name(val)
-                txt += f"{i + 1}. {name_link} — {r_name} ({val})\n"
+                txt += f"{i + 1}. {name_link} — {r_name}\n"
             else:
                 txt += f"{i + 1}. {name_link} — {val}\n"
         if err: txt += f"\nОшибки: {err}"
