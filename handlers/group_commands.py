@@ -1,4 +1,5 @@
 import os
+import asyncio
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -14,6 +15,14 @@ class TopCb(CallbackData, prefix="top"):
     act: str
     uid: int
     c: str
+
+
+async def delete_later(message: Message, delay: int = 86400):
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except:
+        pass
 
 
 def get_rank_name(val: int):
@@ -82,10 +91,12 @@ def kb_wins_sd(uid: int, c: str):
 async def admin_force_scan(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id): return
-    await message.answer("Сбор данных запущен...")
+    sent_msg = await message.answer("Сбор данных запущен...")
+    asyncio.create_task(delete_later(sent_msg))
     from utils.scheduler import collect_daily_stats
     await collect_daily_stats()
-    await message.answer("Готово")
+    sent_msg2 = await message.answer("Готово")
+    asyncio.create_task(delete_later(sent_msg2))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("топ", "top")))
@@ -108,7 +119,8 @@ async def cmd_top_trigger(message: Message):
 
     if not args_str:
         kb = await kb_choose_club(uid)
-        await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
+        sent_msg = await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     msg_triggers = {"смс", "соо", "сообщение", "сообщения", "sms", "msg", "messages", "чат", "флуд", "писари"}
@@ -117,49 +129,56 @@ async def cmd_top_trigger(message: Message):
     cups_triggers = {"общих", "общие", "кубки", "кубков", "общих кубков", "trophies", "cups", "куб"}
     ranks_triggers = {"ранкед", "лига", "ранг", "ranked", "league", "rank", "эло", "elo"}
 
+    sent_msg = None
+
     if args_str in msg_triggers:
-        await message.answer("<b>Сообщения (Все клубы):</b>", reply_markup=kb_timeframe("msg", "main", uid, c))
+        sent_msg = await message.answer("<b>Сообщения (Все клубы):</b>",
+                                        reply_markup=kb_timeframe("msg", "main", uid, c))
     elif args_str in gain_triggers:
-        await message.answer("<b>Рост кубков (Все клубы):</b>", reply_markup=kb_timeframe("cups_gain", "main", uid, c))
+        sent_msg = await message.answer("<b>Рост кубков (Все клубы):</b>",
+                                        reply_markup=kb_timeframe("cups_gain", "main", uid, c))
     elif args_str in wins_triggers:
-        await message.answer("<b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
+        sent_msg = await message.answer("<b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
     elif args_str in cups_triggers:
-        wait_msg = await message.answer("Сбор данных...")
+        sent_msg = await message.answer("Сбор данных...")
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
-            await wait_msg.edit_text(err_msg)
-            return
-        members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
-        tg_map = await get_tag_to_tg_map()
-        res = f"<b>ТОП КУБКОВ</b>\n\n"
-        for i, m in enumerate(members[:10]):
-            tg_id = tg_map.get(m["tag"])
-            name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
-            res += f"{i + 1}. {name_link} - {m['trophies']}\n"
-        await wait_msg.edit_text(res)
+            await sent_msg.edit_text(err_msg)
+        else:
+            members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
+            tg_map = await get_tag_to_tg_map()
+            res = f"<b>ТОП КУБКОВ</b>\n\n"
+            for i, m in enumerate(members[:10]):
+                tg_id = tg_map.get(m["tag"])
+                name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
+                res += f"{i + 1}. {name_link} - {m['trophies']}\n"
+            await sent_msg.edit_text(res)
     elif args_str in ranks_triggers:
-        wait_msg = await message.answer("Сбор профилей...")
+        sent_msg = await message.answer("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
         if not members:
-            await wait_msg.edit_text("Ошибка.")
-            return
-        sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
-        members.sort(key=sort_key, reverse=True)
-        txt = f"<b>Ранкед</b>\n\n"
-        for i, m in enumerate(members[:10]):
-            tg_id = tg_map.get(m["tag"])
-            name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
-            r_val = m.get("ranked_curr_rank", 0)
-            e_val = m.get("ranked_curr_elo", 0)
-            r_name = get_rank_name(r_val)
-            txt += f"{i + 1}. {name_link} - {r_name} ({e_val})\n"
-        if err: txt += f"\nОшибки: {err}"
-        await wait_msg.edit_text(txt)
+            await sent_msg.edit_text("Ошибка.")
+        else:
+            sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
+            members.sort(key=sort_key, reverse=True)
+            txt = f"<b>Ранкед</b>\n\n"
+            for i, m in enumerate(members[:10]):
+                tg_id = tg_map.get(m["tag"])
+                name_link = f'<a href="tg://user?id={tg_id}">{m["name"]}</a>' if tg_id else m["name"]
+                r_val = m.get("ranked_curr_rank", 0)
+                e_val = m.get("ranked_curr_elo", 0)
+                r_name = get_rank_name(r_val)
+                txt += f"{i + 1}. {name_link} - {r_name} ({e_val})\n"
+            if err: txt += f"\nОшибки: {err}"
+            await sent_msg.edit_text(txt)
     else:
         kb = await kb_choose_club(uid)
-        await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
+        sent_msg = await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
+
+    if sent_msg:
+        asyncio.create_task(delete_later(sent_msg))
 
 
 @router.callback_query(TopCb.filter())
