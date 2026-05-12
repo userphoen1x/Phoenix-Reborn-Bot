@@ -96,7 +96,22 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
         if status in ["member", "administrator", "creator"]:
             await wait_msg.edit_text(f"<b>Идентификация пройдена!</b>\nТег {user_tag} привязан.")
         else:
-            rules = f"Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n Нельзя\n1. 18+ контент\n2. Спам\n3. Оскорбления\n4. Реклама\n5. Политика\n6. Доксинг\n7. Конфликты\n8. Попрошайничество\n Можно: Мат в меру, мемы\n Наказания: Варн/Мут/Бан"
+            rules = (
+                f"Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n\n"
+                f"<b>ПРАВИЛА СЕМЕЙСТВА</b>\n\n"
+                f"<u>НЕЛЬЗЯ:</u>\n"
+                f"1. 18+ контент\n"
+                f"2. Спам\n"
+                f"3. Оскорбления\n"
+                f"4. Реклама\n"
+                f"5. Политика\n"
+                f"6. Доксинг\n"
+                f"7. Конфликты\n"
+                f"8. Попрошайничество\n\n"
+                f"<u>МОЖНО:</u>\n"
+                f"— <i>Материться</i>\n"
+                f"— <i>Подколы</i>"
+            )
             await wait_msg.edit_text(rules, reply_markup=get_rules_kb())
         await state.clear()
     else:
