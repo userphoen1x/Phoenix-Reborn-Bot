@@ -44,6 +44,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     await message.answer("Привет! Для входа в группу отправь мне свой <b>Тег Brawl Stars</b>:")
     await state.set_state(Registration.waiting_for_tag)
 
+
 @router.message(Command("set_key"))
 async def admin_set_api_key(message: Message):
     admin_id = os.getenv("ADMIN_ID")
@@ -52,8 +53,13 @@ async def admin_set_api_key(message: Message):
     if len(parts) < 2:
         await message.answer("Использование: /set_key <ключ>")
         return
-    update_api_key(parts[1].strip())
-    await message.answer("API ключ успешно обновлен в памяти бота!")
+
+    new_key = parts[1].strip()
+    update_api_key(new_key)
+
+    wait_msg = await message.answer("Ключ обновлен. Проверяю связь...")
+    ok, text = await check_api_connection()
+    await wait_msg.edit_text(f"Статус нового ключа:\n{text}")
 
 @router.message(Command("ping"))
 async def admin_ping(message: Message):
