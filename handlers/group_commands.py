@@ -130,7 +130,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("<b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
 
     elif act == "cups_cur":
-        await callback.message.edit_text("Сбор LIVE...")
+        await callback.message.edit_text("Сбор Информации...")
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
