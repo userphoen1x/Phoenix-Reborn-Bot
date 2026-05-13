@@ -80,3 +80,13 @@ async def reject_role(callback: CallbackQuery):
 
     await set_user_role(user_id, "Участник", "Отклонен")
     await callback.message.edit_text(f"Запрос на выдачу прав (ID: {user_id}) отклонен.")
+
+@router.message(Command("force_roles"))
+async def cmd_force_roles(message: Message, bot: Bot):
+    founder_id = os.getenv("FOUNDER_ID")
+    if not founder_id or message.from_user.id != int(founder_id):
+        return
+    await message.answer("Запускаю ручную проверку ролей. Ждите...")
+    from utils.scheduler import check_roles
+    await check_roles(bot)
+    await message.answer("Проверка завершена.")
