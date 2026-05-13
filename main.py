@@ -24,10 +24,11 @@ async def main():
 
     await init_db()
     await upgrade_db_roles()
-    start_scheduler()
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    start_scheduler(bot)
 
     dp.include_router(founder_router)
     dp.include_router(reg_router)

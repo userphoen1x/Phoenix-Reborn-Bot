@@ -103,7 +103,13 @@ async def get_all_club_members(specific_club: str = None):
                     if response.status == 200:
                         data = await response.json()
                         members = data.get("members", [])
-                        for m in members: all_members.append({"name": m.get("name"), "tag": m.get("tag"), "trophies": m.get("trophies", 0)})
+                        for m in members:
+                            all_members.append({
+                                "name": m.get("name"),
+                                "tag": m.get("tag"),
+                                "trophies": m.get("trophies", 0),
+                                "role": m.get("role", "member")
+                            })
                     else: errors.append(f"Код {response.status}")
             except Exception as e: errors.append(str(e))
             await asyncio.sleep(0.05)

@@ -3,20 +3,9 @@ import asyncio
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-from utils.database import unlink_user_tag, get_user_data, set_user_role
+from utils.database import unlink_user_tag, get_user_data, set_user_role, ROLE_SYMBOLS
 
 router = Router()
-
-ROLE_SYMBOLS = {
-    "Основатель": "♚",
-    "Программист": "⚙",
-    "Президент": "✦",
-    "Вице-президент": "✧",
-    "Ветеран": "◈",
-    "Участник": "●",
-    "Гость": "○"
-}
-
 
 @router.message(Command("unlink"))
 async def cmd_unlink_tag(message: Message, bot: Bot):
@@ -36,11 +25,10 @@ async def cmd_unlink_tag(message: Message, bot: Bot):
     else:
         await message.answer(f"Пользователь {target} не найден в базе.")
 
-
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot):
     founder_id = os.getenv("FOUNDER_ID")
-    if not founder_id or callback.fromuser.id != int(founder_id):
+    if not founder_id or callback.from_user.id != int(founder_id):
         await callback.answer("Нет прав", show_alert=True)
         return
 
@@ -67,7 +55,7 @@ async def approve_role(callback: CallbackQuery, bot: Bot):
             can_restrict_members=True,
             can_invite_users=True
         )
-        custom_title = f"{ROLE_SYMBOLS[role_ru]} {game_name}"
+        custom_title = f"{ROLE_SYMBOLS.get(role_ru, '○')} {game_name}"
         await bot.set_chat_administrator_custom_title(
             chat_id=target_chat,
             user_id=user_id,
@@ -78,9 +66,7 @@ async def approve_role(callback: CallbackQuery, bot: Bot):
         await callback.message.edit_text(f"Права {role_ru} успешно выданы пользователю (ID: {user_id}).")
 
     except Exception as e:
-        await callback.message.edit_text(
-            f"Ошибка выдачи прав Telegram: {e}\nВозможно, достигнут лимит в 50 администраторов.")
-
+        await callback.message.edit_text(f"Ошибка выдачи прав Telegram: {e}")
 
 @router.callback_query(F.data.startswith("role_reject:"))
 async def reject_role(callback: CallbackQuery):

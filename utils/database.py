@@ -1,70 +1,153 @@
 import aiosqlite
+import os
 from datetime import date, timedelta
 
 DB_NAME = "/app/data/bot_data_v3.db"
 
+ROLE_SYMBOLS = {
+    "Основатель": "♚",
+    "Программист": "⚙",
+    "Президент": "✦",
+    "Вице-президент": "✧",
+    "Ветеран": "◈",
+    "Участник": "●",
+    "Гость": "○"
+}
+
+
 async def init_db():
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                bs_tag TEXT NOT NULL,
-                player_name TEXT,
-                club_name TEXT,
-                is_approved BOOLEAN DEFAULT 1
-            )
-        """)
+                         CREATE TABLE IF NOT EXISTS users
+                         (
+                             user_id
+                             INTEGER
+                             PRIMARY
+                             KEY,
+                             bs_tag
+                             TEXT
+                             NOT
+                             NULL,
+                             player_name
+                             TEXT,
+                             club_name
+                             TEXT,
+                             is_approved
+                             BOOLEAN
+                             DEFAULT
+                             1
+                         )
+                         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS tg_profiles (
-                user_id INTEGER PRIMARY KEY,
-                full_name TEXT
-            )
-        """)
+                         CREATE TABLE IF NOT EXISTS tg_profiles
+                         (
+                             user_id
+                             INTEGER
+                             PRIMARY
+                             KEY,
+                             full_name
+                             TEXT
+                         )
+                         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS links (
-                link TEXT PRIMARY KEY,
-                user_id INTEGER
-            )
-        """)
+                         CREATE TABLE IF NOT EXISTS links
+                         (
+                             link
+                             TEXT
+                             PRIMARY
+                             KEY,
+                             user_id
+                             INTEGER
+                         )
+                         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                user_id INTEGER,
-                chat_id INTEGER,
-                msg_date DATE,
-                msg_count INTEGER DEFAULT 1,
-                PRIMARY KEY (user_id, chat_id, msg_date)
-            )
-        """)
+                         CREATE TABLE IF NOT EXISTS messages
+                         (
+                             user_id
+                             INTEGER,
+                             chat_id
+                             INTEGER,
+                             msg_date
+                             DATE,
+                             msg_count
+                             INTEGER
+                             DEFAULT
+                             1,
+                             PRIMARY
+                             KEY
+                         (
+                             user_id,
+                             chat_id,
+                             msg_date
+                         )
+                             )
+                         """)
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS bs_snapshots (
-                tag TEXT,
-                name TEXT,
-                record_date DATE,
-                trophies INTEGER,
-                solo_wins INTEGER,
-                duo_wins INTEGER,
-                wins_3v3 INTEGER,
-                rank_current INTEGER,
-                rank_highest INTEGER,
-                PRIMARY KEY (tag, record_date)
-            )
-        """)
+                         CREATE TABLE IF NOT EXISTS bs_snapshots
+                         (
+                             tag
+                             TEXT,
+                             name
+                             TEXT,
+                             record_date
+                             DATE,
+                             trophies
+                             INTEGER,
+                             solo_wins
+                             INTEGER,
+                             duo_wins
+                             INTEGER,
+                             wins_3v3
+                             INTEGER,
+                             rank_current
+                             INTEGER,
+                             rank_highest
+                             INTEGER,
+                             PRIMARY
+                             KEY
+                         (
+                             tag,
+                             record_date
+                         )
+                             )
+                         """)
         await db.commit()
+
 
 async def add_user(user_id: int, bs_tag: str, player_name: str, club_name: str):
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("INSERT OR REPLACE INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)", (user_id, bs_tag, player_name, club_name))
+        await db.execute(
+            "INSERT OR REPLACE INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)",
+            (user_id, bs_tag, player_name, club_name))
         await db.commit()
+
 
 async def get_user_data(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT player_name, club_name, is_approved FROM users WHERE user_id = ?", (user_id,)) as cursor:
+        async with db.execute("SELECT player_name, club_name, is_approved FROM users WHERE user_id = ?",
+                              (user_id,)) as cursor:
             return await cursor.fetchone()
+
+
+async def get_user_role_by_id(user_id: int):
+    founder_id = os.getenv("FOUNDER_ID")
+    admin_id = os.getenv("ADMIN_ID")
+    if founder_id and str(user_id) == str(founder_id):
+        return "Основатель"
+    if admin_id and str(user_id) == str(admin_id):
+        return "Программист"
+
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT game_role FROM tg_profiles WHERE user_id = ?", (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else "Гость"
+
 
 async def save_link(link: str, user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("INSERT INTO links (link, user_id) VALUES (?, ?)", (link, user_id))
         await db.commit()
+
 
 async def get_link_owner(link: str):
     async with aiosqlite.connect(DB_NAME) as db:
@@ -72,18 +155,21 @@ async def get_link_owner(link: str):
             row = await cursor.fetchone()
             return row[0] if row else None
 
+
 async def increment_message(user_id: int, chat_id: int, full_name: str):
     today = date.today().isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("INSERT OR REPLACE INTO tg_profiles (user_id, full_name) VALUES (?, ?)", (user_id, full_name))
         await db.execute("""
-            INSERT INTO messages (user_id, chat_id, msg_date, msg_count)
-            VALUES (?, ?, ?, 1)
-            ON CONFLICT(user_id, chat_id, msg_date) DO UPDATE SET msg_count = msg_count + 1
-        """, (user_id, chat_id, today))
+                         INSERT INTO messages (user_id, chat_id, msg_date, msg_count)
+                         VALUES (?, ?, ?, 1) ON CONFLICT(user_id, chat_id, msg_date) DO
+                         UPDATE SET msg_count = msg_count + 1
+                         """, (user_id, chat_id, today))
         await db.commit()
 
-async def save_snapshot(tag: str, name: str, dt: str, trophies: int, solo: int, duo: int, wins3v3: int, rank_c: int, rank_h: int):
+
+async def save_snapshot(tag: str, name: str, dt: str, trophies: int, solo: int, duo: int, wins3v3: int, rank_c: int,
+                        rank_h: int):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
             INSERT OR REPLACE INTO bs_snapshots 
@@ -92,14 +178,16 @@ async def save_snapshot(tag: str, name: str, dt: str, trophies: int, solo: int, 
         """, (tag, name, dt, trophies, solo, duo, wins3v3, rank_c, rank_h))
         await db.commit()
 
+
 async def get_all_approved_tags():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT bs_tag FROM users WHERE is_approved = 1") as cursor:
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
 
+
 async def get_top_messages(days=None):
-    query = "SELECT t.full_name, SUM(m.msg_count) as total FROM messages m JOIN tg_profiles t ON m.user_id = t.user_id "
+    query = "SELECT t.full_name, SUM(m.msg_count) as total, m.user_id FROM messages m JOIN tg_profiles t ON m.user_id = t.user_id "
     params = []
     if days is not None:
         td = (date.today() - timedelta(days=days)).isoformat()
@@ -109,13 +197,15 @@ async def get_top_messages(days=None):
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
 
+
 async def get_top_gain(column: str, days: int, tags_filter: list = None):
     if tags_filter is not None and len(tags_filter) == 0: return []
     td = (date.today() - timedelta(days=days)).isoformat()
     query = f"""
-        SELECT name,
+        SELECT s.name,
                (SELECT {column} FROM bs_snapshots WHERE tag = s.tag ORDER BY record_date DESC LIMIT 1) -
-               (SELECT {column} FROM bs_snapshots WHERE tag = s.tag AND record_date >= ? ORDER BY record_date ASC LIMIT 1) as gain
+               (SELECT {column} FROM bs_snapshots WHERE tag = s.tag AND record_date >= ? ORDER BY record_date ASC LIMIT 1) as gain,
+               s.tag
         FROM bs_snapshots s
         WHERE 1=1
     """
@@ -124,9 +214,10 @@ async def get_top_gain(column: str, days: int, tags_filter: list = None):
         placeholders = ",".join("?" for _ in tags_filter)
         query += f" AND s.tag IN ({placeholders})"
         params.extend(tags_filter)
-    query += " GROUP BY tag HAVING gain > 0 ORDER BY gain DESC LIMIT 10"
+    query += " GROUP BY s.tag HAVING gain > 0 ORDER BY gain DESC LIMIT 10"
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
+
 
 async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool = False):
     if tags_filter is not None and len(tags_filter) == 0: return []
@@ -143,11 +234,13 @@ async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool 
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
 
+
 async def get_tag_to_tg_map():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT bs_tag, user_id FROM users WHERE is_approved = 1") as cursor:
             rows = await cursor.fetchall()
             return {row[0]: row[1] for row in rows}
+
 
 async def upgrade_db_roles():
     db_path = "/app/data/bot_data_v3.db"
@@ -159,10 +252,12 @@ async def upgrade_db_roles():
         except Exception:
             pass
 
+
 async def unlink_user_tag(target_username: str) -> bool:
     db_path = "/app/data/bot_data_v3.db"
     async with aiosqlite.connect(db_path) as db:
-        async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE", (target_username,)) as cursor:
+        async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                              (target_username,)) as cursor:
             row = await cursor.fetchone()
             if not row:
                 return False
@@ -171,8 +266,23 @@ async def unlink_user_tag(target_username: str) -> bool:
             await db.commit()
             return True
 
+
 async def set_user_role(user_id: int, role: str, status: str):
     db_path = "/app/data/bot_data_v3.db"
     async with aiosqlite.connect(db_path) as db:
-        await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?", (role, status, user_id))
+        await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?",
+                         (role, status, user_id))
         await db.commit()
+
+
+async def get_all_users_for_roles():
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = """
+                SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status
+                FROM users u
+                         JOIN tg_profiles t ON u.user_id = t.user_id
+                WHERE u.is_approved = 1 \
+                """
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4]} for r in rows]
