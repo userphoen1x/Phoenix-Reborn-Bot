@@ -148,3 +148,31 @@ async def get_tag_to_tg_map():
         async with db.execute("SELECT bs_tag, user_id FROM users WHERE is_approved = 1") as cursor:
             rows = await cursor.fetchall()
             return {row[0]: row[1] for row in rows}
+
+async def upgrade_db_roles():
+    db_path = "/app/data/bot_data_v3.db"
+    async with aiosqlite.connect(db_path) as db:
+        try:
+            await db.execute("ALTER TABLE tg_profiles ADD COLUMN game_role TEXT DEFAULT 'Гость'")
+            await db.execute("ALTER TABLE tg_profiles ADD COLUMN role_status TEXT DEFAULT 'Одобрен'")
+            await db.commit()
+        except Exception:
+            pass
+
+async def unlink_user_tag(target_username: str) -> bool:
+    db_path = "/app/data/bot_data_v3.db"
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE", (target_username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            user_id = row[0]
+            await db.execute("DELETE FROM tg_profiles WHERE user_id = ?", (user_id,))
+            await db.commit()
+            return True
+
+async def set_user_role(user_id: int, role: str, status: str):
+    db_path = "/app/data/bot_data_v3.db"
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?", (role, status, user_id))
+        await db.commit()

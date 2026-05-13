@@ -104,7 +104,6 @@ async def admin_force_scan(message: Message):
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("топ", "top")))
 async def cmd_top_trigger(message: Message):
     text = message.text.lower().strip()
-
     for prefix in ["топ 10", "top 10", "топ10", "top10", "топ", "top"]:
         if text.startswith(prefix):
             text = text[len(prefix):].strip()
@@ -203,7 +202,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("<b>Победы:</b>", reply_markup=kb_wins(uid, c))
     elif act == "wins_sd":
         await callback.message.edit_text("<b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
-
     elif act == "cups_cur":
         await callback.message.edit_text("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -221,7 +219,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             res += f"{i + 1}. {name_link} - {m['trophies']}\n"
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]))
-
     elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
@@ -271,7 +268,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 txt += f"{i + 1}. {name_link} - {val}\n"
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back)
-
     else:
         await callback.message.edit_text("Расчет...")
         back = InlineKeyboardMarkup(
@@ -288,14 +284,12 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 txt = "<b>Топ сообщений чата</b>\n\n"
                 for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} ({v})\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
-
             elif act.startswith("cups_gain_"):
                 d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
                 data = await get_top_gain("trophies", d, tags_filter)
                 txt = "<b>Рост кубков</b>\n\n"
                 for i, (n, v) in enumerate(data): txt += f"{i + 1}. {n} - +{v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
-
         except:
             await callback.message.edit_text("Ошибка вычислений", reply_markup=back)
 
