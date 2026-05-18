@@ -113,4 +113,4 @@ async def cmd_profile(message: Message):
         f"└ Баланс: {balance} ₣"
     )
 
-    await message.answer(text, link_preview=LinkPreviewOptions(is_disabled=True))
+    await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))

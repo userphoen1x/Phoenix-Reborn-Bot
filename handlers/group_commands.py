@@ -181,7 +181,7 @@ async def cmd_top_trigger(message: Message):
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
         ])
-        await sent_msg.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
+        await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(sent_msg))
         return
 
@@ -213,13 +213,14 @@ async def cmd_top_trigger(message: Message):
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]
         ])
-        sent_msg = await message.answer(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
+        sent_msg = await message.answer(txt, reply_markup=back,
+                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
         sent_msg = await message.answer("Сбор данных...")
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
-            await sent_msg.edit_text(err_msg, link_preview=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text(err_msg, link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
             members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
             tg_map = await get_tag_to_tg_map()
@@ -232,13 +233,13 @@ async def cmd_top_trigger(message: Message):
                 sym = ROLE_SYMBOLS.get(u_role, "○")
                 name_link = make_link(m['name'], tg_name, t_uid)
                 res += f"{i + 1}. {sym} <b>{name_link}</b> - {m['trophies']}\n"
-            await sent_msg.edit_text(res, link_preview=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
         sent_msg = await message.answer("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
         if not members:
-            await sent_msg.edit_text("Ошибка.", link_preview=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text("Ошибка.", link_preview_options=LinkPreviewOptions(is_disabled=True))
         else:
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
             members.sort(key=sort_key, reverse=True)
@@ -255,7 +256,7 @@ async def cmd_top_trigger(message: Message):
                 name_link = make_link(m['name'], tg_name, t_uid)
                 txt += f"{i + 1}. {sym} <b>{name_link}</b> - {r_name} ({e_val})\n"
             if err: txt += f"\nОшибки: {err}"
-            await sent_msg.edit_text(txt, link_preview=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid)
         sent_msg = await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
@@ -300,7 +301,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
         ])
-        await callback.message.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(txt, reply_markup=back,
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -308,7 +310,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
             await callback.message.edit_text(err_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
-                                             link_preview=LinkPreviewOptions(is_disabled=True))
+                                             link_preview_options=LinkPreviewOptions(is_disabled=True))
             return
         members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
         tg_map = await get_tag_to_tg_map()
@@ -323,7 +325,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             res += f"{i + 1}. {sym} <b>{name_link}</b> - {m['trophies']}\n"
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
-                                         link_preview=LinkPreviewOptions(is_disabled=True))
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
@@ -340,7 +342,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
         if not members:
             await callback.message.edit_text("Ошибка", reply_markup=back,
-                                             link_preview=LinkPreviewOptions(is_disabled=True))
+                                             link_preview_options=LinkPreviewOptions(is_disabled=True))
             return
 
         if act == "ranks_curr":
@@ -377,9 +379,10 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 val = sort_key(m)
                 txt += f"{i + 1}. {sym} <b>{name_link}</b> - {val}\n"
         if err: txt += f"\nОшибки: {err}"
-        await callback.message.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(txt, reply_markup=back,
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
-        await callback.message.edit_text("Расчет...", link_preview=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text("Расчет...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
@@ -399,7 +402,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                     name_link = make_link(display_name, tg_name, t_uid)
                     txt += f"{i + 1}. {sym} <b>{name_link}</b> ({v})\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c),
-                                                 link_preview=LinkPreviewOptions(is_disabled=True))
+                                                 link_preview_options=LinkPreviewOptions(is_disabled=True))
             elif act.startswith("cups_gain_"):
                 d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
                 data = await get_top_gain("trophies", d, tags_filter)
@@ -414,10 +417,10 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                     name_link = make_link(n, tg_name, t_uid)
                     txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
-                                                 link_preview=LinkPreviewOptions(is_disabled=True))
+                                                 link_preview_options=LinkPreviewOptions(is_disabled=True))
         except:
             await callback.message.edit_text("Ошибка вычислений", reply_markup=back,
-                                             link_preview=LinkPreviewOptions(is_disabled=True))
+                                             link_preview_options=LinkPreviewOptions(is_disabled=True))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(
@@ -580,16 +583,16 @@ async def cmd_moderation(message: Message, bot: Bot):
             pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\nПричина: {reason}"
             log_text = f"Администратор {fmt_admin} {action_log}.\nПричина: {reason}."
 
-        pub_msg = await message.answer(pub_text, link_preview=LinkPreviewOptions(is_disabled=True))
+        pub_msg = await message.answer(pub_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(pub_msg))
 
         admin_log_chat = os.getenv("ADMIN_ID")
         if admin_log_chat:
-            await bot.send_message(admin_log_chat, log_text, link_preview=LinkPreviewOptions(is_disabled=True))
+            await bot.send_message(admin_log_chat, log_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
 
     except Exception as e:
         err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.",
-                                       link_preview=LinkPreviewOptions(is_disabled=True))
+                                       link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(err_msg, 10))
 
 
