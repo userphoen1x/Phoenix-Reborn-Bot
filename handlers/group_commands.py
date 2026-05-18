@@ -493,13 +493,165 @@ async def cmd_moderation(message: Message, bot: Bot):
         asyncio.create_task(delete_later(err_msg, 10))
 
 
-@router.message()
-async def message_counter(message: Message):
-    if message.from_user.is_bot:
+@router.message(lambda msg: msg.text and msg.text.lower().startswith(
+    ("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")))
+async def cmd_moderation(message: Message, bot: Bot):
+    admin_id = message.from_user.id
+    a_role = await get_user_role_by_id(admin_id)
+
+    if a_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]:
         return
-    if message.text:
-        if not message.text.lower().startswith(
-                ("топ", "top", "мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")):
-            from utils.database import increment_message
-            name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
-            await increment_message(message.from_user.id, message.chat.id, name)
+
+    parts = message.text.split()
+    if not parts:
+        return
+
+    cmd = parts[0].lower()
+    target_id = None
+    target_name = None
+    idx = 1
+
+    if idx < len(parts) and parts[idx].startswith("@"):
+        target_username = parts[idx]
+        idx += 1
+        db_path = "/app/data/bot_data_v3.db"
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                                  (target_username,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    target_id = row[0]
+                    target_name = target_username
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        u = message.reply_to_message.from_user
+        target_name = f"@{u.username}" if u.username else u.full_name
+
+    if not target_id:
+        sent_msg = await message.answer(
+            "Не удалось найти пользователя. Укажите @username (если он есть в базе) или ответьте на его сообщение.")
+        asyncio.create_task(delete_later(sent_msg, 10))
+        return
+
+    time_str = ""
+    dt = None
+
+    if cmd in ["мут", "mute", "бан", "ban"]:
+        if idx < len(parts):
+            val_str = parts[idx].lower()
+
+            word_durations = {
+                "навсегда": (None, "навсегда"),
+                "пермач": (None, "навсегда"),
+                "forever": (None, "навсегда"),
+                "минута": (timedelta(minutes=1), "1 минуту"),
+                "минуту": (timedelta(minutes=1), "1 минуту"),
+                "час": (timedelta(hours=1), "1 час"),
+                "день": (timedelta(days=1), "1 день"),
+                "сутки": (timedelta(days=1), "1 день"),
+                "неделя": (timedelta(weeks=1), "1 неделю"),
+                "неделю": (timedelta(weeks=1), "1 неделю"),
+                "месяц": (timedelta(days=30), "1 месяц"),
+                "полгода": (timedelta(days=180), "полгода"),
+                "год": (timedelta(days=365), "1 год")
+            }
+
+            if val_str in word_durations:
+                dt, time_str = word_durations[val_str]
+                idx += 1
+            elif val_str.isdigit():
+                val = int(val_str)
+                idx += 1
+                if idx < len(parts):
+                    unit = parts[idx].lower()
+                    idx += 1
+                    time_str = f"{val} {unit}"
+                    if unit.startswith(("мин", "m")):
+                        dt = timedelta(minutes=val)
+                    elif unit.startswith(("час", "h")):
+                        dt = timedelta(hours=val)
+                    elif unit.startswith(("ден", "дн", "сут", "d")):
+                        dt = timedelta(days=val)
+                    elif unit.startswith(("недел", "w")):
+                        dt = timedelta(weeks=val)
+                    elif unit.startswith(("мес", "mo")):
+                        dt = timedelta(days=val * 30)
+                    elif unit.startswith(("год", "лет", "y")):
+                        dt = timedelta(days=val * 365)
+                    else:
+                        time_str = ""
+                        idx -= 2
+
+    if not time_str:
+        if cmd in ["мут", "mute"]:
+            time_str = "10 минут"
+            dt = timedelta(minutes=10)
+        elif cmd in ["бан", "ban"]:
+            time_str = "навсегда"
+            dt = None
+
+    reason_parts = parts[idx:]
+    reason = " ".join(reason_parts) if reason_parts else "Не указана"
+
+    admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+
+    t_role = await get_user_role_by_id(target_id)
+    a_sym = ROLE_SYMBOLS.get(a_role, "○")
+    t_sym = ROLE_SYMBOLS.get(t_role, "○")
+
+    fmt_admin = f"{a_sym} {admin_name}"
+    fmt_target = f"{t_sym} {target_name}"
+
+    try:
+        if cmd in ["мут", "mute"]:
+            until = datetime.now() + dt if dt else None
+            await bot.restrict_chat_member(message.chat.id, target_id,
+                                           permissions=ChatPermissions(can_send_messages=False), until_date=until)
+            action_pub = f"лишен права голоса на {time_str}"
+            action_log = f"замутил пользователя {fmt_target} на {time_str}"
+        elif cmd in ["анмут", "unmute"]:
+            await bot.restrict_chat_member(
+                message.chat.id, target_id,
+                permissions=ChatPermissions(
+                    can_send_messages=True, can_send_audios=True, can_send_documents=True,
+                    can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
+                    can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
+                    can_add_web_page_previews=True, can_invite_users=True
+                )
+            )
+            action_pub = "возвращен к полноценному общению"
+            action_log = f"размутил пользователя {fmt_target}"
+        elif cmd in ["кик", "kick"]:
+            await bot.ban_chat_member(message.chat.id, target_id)
+            await bot.unban_chat_member(message.chat.id, target_id)
+            action_pub = "исключен из группы"
+            action_log = f"кикнул пользователя {fmt_target}"
+        elif cmd in ["бан", "ban"]:
+            until = datetime.now() + dt if dt else None
+            await bot.ban_chat_member(message.chat.id, target_id, until_date=until)
+            t_str = f" на {time_str}" if time_str != "навсегда" else " навсегда"
+            action_pub = f"забанен{t_str}"
+            action_log = f"забанил пользователя {fmt_target}{t_str}"
+
+        try:
+            await message.delete()
+        except:
+            pass
+
+        if cmd in ["анмут", "unmute"]:
+            pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}."
+            log_text = f"Администратор {fmt_admin} {action_log}."
+        else:
+            pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\nПричина: {reason}"
+            log_text = f"Администратор {fmt_admin} {action_log}.\nПричина: {reason}."
+
+        pub_msg = await message.answer(pub_text)
+        asyncio.create_task(delete_later(pub_msg))
+
+        admin_log_chat = os.getenv("ADMIN_ID")
+        if admin_log_chat:
+            await bot.send_message(admin_log_chat, log_text)
+
+    except Exception as e:
+        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
+        asyncio.create_task(delete_later(err_msg, 10))
