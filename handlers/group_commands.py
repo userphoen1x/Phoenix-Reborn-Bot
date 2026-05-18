@@ -424,7 +424,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(
-    ("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")))
+    ("мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан", "unban")))
 async def cmd_moderation(message: Message, bot: Bot):
     admin_id = message.from_user.id
     a_role = await get_user_role_by_id(admin_id)
@@ -547,7 +547,7 @@ async def cmd_moderation(message: Message, bot: Bot):
                                            permissions=ChatPermissions(can_send_messages=False), until_date=until)
             action_pub = f"лишен права голоса на {time_str}"
             action_log = f"замутил пользователя {fmt_target} на {time_str}"
-        elif cmd in ["анмут", "unmute"]:
+        elif cmd in ["анмут", "unmute", "размут"]:
             await bot.restrict_chat_member(
                 message.chat.id, target_id,
                 permissions=ChatPermissions(
@@ -570,13 +570,17 @@ async def cmd_moderation(message: Message, bot: Bot):
             t_str = f" на {time_str}" if time_str != "навсегда" else " навсегда"
             action_pub = f"забанен{t_str}"
             action_log = f"забанил пользователя {fmt_target}{t_str}"
+        elif cmd in ["разбан", "unban"]:
+            await bot.unban_chat_member(message.chat.id, target_id)
+            action_pub = "разбанен (может вернуться в группу)"
+            action_log = f"разбанил пользователя {fmt_target}"
 
         try:
             await message.delete()
         except:
             pass
 
-        if cmd in ["анмут", "unmute"]:
+        if cmd in ["анмут", "unmute", "размут", "разбан", "unban"]:
             pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}."
             log_text = f"Администратор {fmt_admin} {action_log}."
         else:
@@ -602,7 +606,8 @@ async def message_counter(message: Message):
         return
     if message.text:
         if not message.text.lower().startswith(
-                ("топ", "top", "мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")):
+                ("топ", "top", "мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан",
+                 "unban")):
             from utils.database import increment_message
             name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             await increment_message(message.from_user.id, message.chat.id, name)
