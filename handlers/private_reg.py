@@ -33,7 +33,8 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
         return
     user_data = await get_user_data(user_id)
     if status in ["member", "administrator", "creator"]:
-        if user_data: await message.answer(f"Твой профиль: <b>{user_data[0]}</b> из ({user_data[1]}).")
+        if user_data:
+            await message.answer(f"Твой профиль: <b>{user_data[0]}</b> из <b>{user_data[1]}</b>.")
         else:
             await message.answer("Привет! Ты уже в группе, но тег не привязан. Напиши свой <b>Тег</b>:")
             await state.set_state(Registration.waiting_for_tag)
@@ -114,16 +115,4 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
             await wait_msg.edit_text(rules, reply_markup=get_rules_kb())
         await state.clear()
     else:
-        await wait_msg.edit_text("Ошибка или ты не в клубе.")
-        await state.clear()
-
-@router.callback_query(F.data == "rules_accepted")
-async def send_invite_link(callback: CallbackQuery):
-    target_chat = os.getenv("TARGET_CHAT_ID")
-    try:
-        invite = await callback.bot.create_chat_invite_link(chat_id=target_chat, member_limit=1)
-        await save_link(invite.invite_link, callback.from_user.id)
-        await callback.message.edit_text(f"Твоя ссылка:\n{invite.invite_link}")
-    except:
-        await callback.message.edit_text("Ошибка прав.")
-    await callback.answer()
+        await wait_msg.edit_text("Ошибка или ты не в клубе. Проверь синтаксис и введи тег еще раз:")

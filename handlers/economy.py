@@ -1,5 +1,6 @@
 import asyncio
 import random
+import aiosqlite
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -43,31 +44,54 @@ async def cmd_work(message: Message):
     await message.answer(f"Вы успешно поработали и заработали {reward} Ф!")
 
 
-@router.message(Command("pay"))
+@router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
 async def cmd_pay(message: Message, bot: Bot):
     parts = message.text.split()
-    if len(parts) != 3 or not parts[1].startswith("@") or not parts[2].isdigit():
-        await message.answer("Формат: /pay @username 100")
+    if not parts: return
+
+    target_id = None
+    target_name = None
+    idx = 1
+
+    if idx < len(parts) and parts[idx].startswith("@"):
+        target_username = parts[idx]
+        idx += 1
+        db_path = "/app/data/bot_data_v3.db"
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                                  (target_username,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    target_id = row[0]
+                    target_name = target_username
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        u = message.reply_to_message.from_user
+        target_name = f"@{u.username}" if u.username else u.full_name
+
+    if not target_id:
+        await message.answer("Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
         return
 
-    amount = int(parts[2])
+    if idx >= len(parts) or not parts[idx].isdigit():
+        await message.answer("Укажите сумму перевода числом. Пример: перевод 100")
+        return
+
+    amount = int(parts[idx])
     if amount <= 0: return
 
     sender_id = message.from_user.id
+    if sender_id == target_id: return
+
     eco_sender = await get_eco_data(sender_id)
     if not eco_sender or eco_sender["balance"] < amount:
         await message.answer("Недостаточно средств.")
         return
 
-    target_id = None
-    if message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        target_name = message.reply_to_message.from_user.full_name
-    else:
-        await message.answer("Ответьте на сообщение пользователя командой /pay 100")
+    eco_target = await get_eco_data(target_id)
+    if not eco_target:
+        await message.answer("Этот пользователь еще не зарегистрирован в экономической системе бота.")
         return
-
-    if sender_id == target_id: return
 
     await update_balance(sender_id, -amount)
     await update_balance(target_id, amount)
