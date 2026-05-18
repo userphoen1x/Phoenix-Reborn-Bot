@@ -52,6 +52,7 @@ async def check_roles(bot: Bot):
         db_role = user["game_role"]
         status = user["role_status"]
         name = user["name"]
+        tg_name = user.get("tg_name") or "Игрок"
 
         if tag not in api_roles:
             if db_role != "Гость":
@@ -85,9 +86,8 @@ async def check_roles(bot: Bot):
                         [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]
                     ])
                     try:
-                        await bot.send_message(founder_id,
-                                               f"Пользователь {name} получил в игре звание {api_role}. Выдать полномочия в чате?",
-                                               reply_markup=kb)
+                        msg_text = f"{tg_name} ({u_id}) зашел с тега игрока {tag} ({name}). Убедитесь, что это он и выдайте ему права и звание {api_role}."
+                        await bot.send_message(founder_id, msg_text, reply_markup=kb)
                     except:
                         pass
 

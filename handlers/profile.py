@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, LinkPreviewOptions
-from utils.database import get_user_data, get_eco_data, get_user_role_by_id, ROLE_SYMBOLS
+from utils.database import get_user_data, get_eco_data, get_user_role_by_id, get_baseline_trophies, ROLE_SYMBOLS
 from utils.brawl_api import get_player_stats
 
 router = Router()
@@ -24,19 +24,6 @@ def get_rank_name(val: int):
         22: "Про"
     }
     return ranks.get(val, "Без ранга")
-
-
-async def get_daily_gain(tag: str) -> int:
-    db_path = "/app/data/bot_data_v3.db"
-    td = (date.today() - timedelta(days=1)).isoformat()
-    async with aiosqlite.connect(db_path) as db:
-        query = """
-                SELECT (SELECT trophies FROM bs_snapshots WHERE tag = ? ORDER BY record_date DESC LIMIT 1) -
-                (SELECT trophies FROM bs_snapshots WHERE tag = ? AND record_date >= ? ORDER BY record_date ASC LIMIT 1) \
-                """
-        async with db.execute(query, (tag, tag, td)) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row and row[0] is not None else 0
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("профиль", "мой профиль", "/profile")))
@@ -86,16 +73,22 @@ async def cmd_profile(message: Message):
 
     bs_tag = eco_data.get('bs_tag', '')
     stats = await get_player_stats(bs_tag) if bs_tag else None
-    gain = await get_daily_gain(bs_tag) if bs_tag else 0
-    gain_str = f"+{gain}" if gain > 0 else str(gain)
 
     if stats:
         trophies = stats['trophies']
+
+        # Получаем базовое значение кубков на начало дня
+        baseline_map = await get_baseline_trophies(1, [bs_tag])
+        baseline = baseline_map.get(bs_tag, trophies)
+        gain = trophies - baseline
+        gain_str = f"+{gain}" if gain > 0 else str(gain)
+
         wins3v3 = stats['wins_3v3']
         sd_wins = stats['solo_wins'] + stats['duo_wins']
         rank_name = get_rank_name(stats.get('ranked_curr_rank', 0))
         rank_elo = stats.get('ranked_curr_elo', 0)
     else:
+        gain_str = "???"
         trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
 
     balance = eco_data["balance"]

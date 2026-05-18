@@ -1,7 +1,7 @@
 import aiosqlite
 import os
 import json
-from datetime import date, timedelta
+from datetime import datetime, date, timedelta
 
 DB_NAME = "/app/data/bot_data_v3.db"
 
@@ -274,26 +274,30 @@ async def get_top_messages(days=None):
             return await cursor.fetchall()
 
 
-async def get_top_gain(column: str, days: int, tags_filter: list = None):
-    if tags_filter is not None and len(tags_filter) == 0: return []
-    td = (date.today() - timedelta(days=days)).isoformat()
-    query = f"""
-        SELECT s.name,
-               (SELECT {column} FROM bs_snapshots WHERE tag = s.tag ORDER BY record_date DESC LIMIT 1) -
-               (SELECT {column} FROM bs_snapshots WHERE tag = s.tag AND record_date >= ? ORDER BY record_date ASC LIMIT 1) as gain,
-               s.tag
-        FROM bs_snapshots s
-        WHERE 1=1
-    """
+async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
+    if tags_filter is not None and len(tags_filter) == 0: return {}
+
+    logical_today = (datetime.now() - timedelta(hours=4)).date()
+    td = (logical_today - timedelta(days=days - 1)).isoformat()
+
+    query = """
+            SELECT tag, trophies
+            FROM bs_snapshots s1
+            WHERE record_date = (SELECT MIN(record_date) \
+                                 FROM bs_snapshots s2 \
+                                 WHERE s2.tag = s1.tag \
+                                   AND s2.record_date >= ?) \
+            """
     params = [td]
     if tags_filter:
         placeholders = ",".join("?" for _ in tags_filter)
-        query += f" AND s.tag IN ({placeholders})"
+        query += f" AND s1.tag IN ({placeholders})"
         params.extend(tags_filter)
-    query += " GROUP BY s.tag HAVING gain > 0 ORDER BY gain DESC LIMIT 10"
+
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(query, params) as cursor:
-            return await cursor.fetchall()
+            rows = await cursor.fetchall()
+            return {row[0]: row[1] for row in rows}
 
 
 async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool = False):
@@ -361,11 +365,11 @@ async def set_user_role(user_id: int, role: str, status: str):
 async def get_all_users_for_roles():
     async with aiosqlite.connect(DB_NAME) as db:
         query = """
-            SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status 
+            SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status, t.full_name 
             FROM users u 
             JOIN tg_profiles t ON u.user_id = t.user_id 
             WHERE u.is_approved = 1
         """
         async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
-            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4]} for r in rows]
+            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]} for r in rows]

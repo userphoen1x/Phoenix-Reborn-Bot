@@ -8,8 +8,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
     LinkPreviewOptions
 from aiogram.filters.callback_data import CallbackData
 from utils.brawl_api import get_all_club_members, CLAN_TAGS, get_live_club_detailed_stats, get_clan_names
-from utils.database import get_top_messages, get_top_gain, get_top_absolute, get_tag_to_tg_map, get_user_role_by_id, \
-    get_top_balance, ROLE_SYMBOLS
+from utils.database import get_top_messages, get_baseline_trophies, get_top_absolute, get_tag_to_tg_map, \
+    get_user_role_by_id, get_top_balance, ROLE_SYMBOLS
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -156,17 +156,34 @@ async def cmd_top_trigger(message: Message):
         push_title = "за день"
 
     if is_push_direct:
-        sent_msg = await message.answer("Сбор данных...")
-        tags_filter = None
-        if c != "ALL":
-            members, err = await get_all_club_members(c)
-            tags_filter = [m["tag"] for m in members] if members else []
+        sent_msg = await message.answer("Сбор live-данных из игры...",
+                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
 
-        data = await get_top_gain("trophies", push_days, tags_filter)
+        live_members, err = await get_live_club_detailed_stats(c)
+        if not live_members:
+            await sent_msg.edit_text("Ошибка загрузки данных из API.",
+                                     link_preview_options=LinkPreviewOptions(is_disabled=True))
+            return
+
+        tags_filter = [m["tag"] for m in live_members]
+        baseline_map = await get_baseline_trophies(push_days, tags_filter)
+
+        results = []
+        for m in live_members:
+            tag = m["tag"]
+            live_cups = m.get("trophies", 0)
+            baseline = baseline_map.get(tag, live_cups)
+            gain = live_cups - baseline
+            if gain > 0:
+                results.append((m["name"], gain, tag))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        results = results[:10]
+
         tg_map = await get_tag_to_tg_map()
 
         txt = f"<b>Топ пушеров ({push_title})</b>\n\n"
-        for i, (n, v, tag_str) in enumerate(data):
+        for i, (n, v, tag_str) in enumerate(results):
             tg_data = tg_map.get(tag_str)
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
@@ -175,8 +192,8 @@ async def cmd_top_trigger(message: Message):
             name_link = make_link(n, tg_name, t_uid)
             txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
 
-        if not data:
-            txt += "Пока нет данных для расчета роста (снимки делаются ночью)."
+        if not results:
+            txt += "Пока нет данных для расчета (или никто не апнул кубки)."
 
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
@@ -381,46 +398,61 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back,
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
-    else:
+    elif act.startswith("msg_"):
         await callback.message.edit_text("Расчет...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        back = InlineKeyboardMarkup(
-            inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
-        try:
-            tags_filter = None
-            if c != "ALL":
-                members, err = await get_all_club_members(c)
-                tags_filter = [m["tag"] for m in members]
+        d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
+        data = await get_top_messages(d)
+        txt = "<b>Топ сообщений чата</b>\n\n"
+        for i, (tg_name, player_name, v, t_uid) in enumerate(data):
+            display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
+            u_role = await get_user_role_by_id(t_uid)
+            sym = ROLE_SYMBOLS.get(u_role, "○")
+            name_link = make_link(display_name, tg_name, t_uid)
+            txt += f"{i + 1}. {sym} <b>{name_link}</b> ({v})\n"
+        await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c),
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
+    elif act.startswith("cups_gain_"):
+        d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
+        await callback.message.edit_text("Сбор live-данных из игры...",
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
-            if act.startswith("msg_"):
-                d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
-                data = await get_top_messages(d)
-                txt = "<b>Топ сообщений чата</b>\n\n"
-                for i, (tg_name, player_name, v, t_uid) in enumerate(data):
-                    display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-                    u_role = await get_user_role_by_id(t_uid)
-                    sym = ROLE_SYMBOLS.get(u_role, "○")
-                    name_link = make_link(display_name, tg_name, t_uid)
-                    txt += f"{i + 1}. {sym} <b>{name_link}</b> ({v})\n"
-                await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c),
-                                                 link_preview_options=LinkPreviewOptions(is_disabled=True))
-            elif act.startswith("cups_gain_"):
-                d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
-                data = await get_top_gain("trophies", d, tags_filter)
-                tg_map = await get_tag_to_tg_map()
-                txt = "<b>Рост кубков</b>\n\n"
-                for i, (n, v, tag_str) in enumerate(data):
-                    tg_data = tg_map.get(tag_str)
-                    t_uid = tg_data["id"] if tg_data else None
-                    tg_name = tg_data["name"] if tg_data else None
-                    u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-                    sym = ROLE_SYMBOLS.get(u_role, "○")
-                    name_link = make_link(n, tg_name, t_uid)
-                    txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
-                await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
-                                                 link_preview_options=LinkPreviewOptions(is_disabled=True))
-        except:
-            await callback.message.edit_text("Ошибка вычислений", reply_markup=back,
+        live_members, err = await get_live_club_detailed_stats(c)
+        if not live_members:
+            await callback.message.edit_text("Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
+            return
+
+        tags_filter = [m["tag"] for m in live_members]
+        baseline_map = await get_baseline_trophies(d, tags_filter)
+
+        results = []
+        for m in live_members:
+            tag = m["tag"]
+            live_cups = m.get("trophies", 0)
+            baseline = baseline_map.get(tag, live_cups)
+            gain = live_cups - baseline
+            if gain > 0:
+                results.append((m["name"], gain, tag))
+
+        results.sort(key=lambda x: x[1], reverse=True)
+        results = results[:10]
+
+        tg_map = await get_tag_to_tg_map()
+        txt = "<b>Рост кубков</b>\n\n"
+        for i, (n, v, tag_str) in enumerate(results):
+            tg_data = tg_map.get(tag_str)
+            t_uid = tg_data["id"] if tg_data else None
+            tg_name = tg_data["name"] if tg_data else None
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            sym = ROLE_SYMBOLS.get(u_role, "○")
+            name_link = make_link(n, tg_name, t_uid)
+            txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
+
+        if not results:
+            txt += "Пока нет данных для расчета."
+
+        await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(
