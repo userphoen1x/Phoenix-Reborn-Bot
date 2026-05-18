@@ -148,6 +148,8 @@ async def add_user(user_id: int, bs_tag: str, player_name: str, club_name: str):
         await db.execute(
             "INSERT OR REPLACE INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)",
             (user_id, bs_tag, player_name, club_name))
+        await db.execute("INSERT OR IGNORE INTO tg_profiles (user_id, full_name, balance) VALUES (?, ?, 1000)",
+                         (user_id, player_name))
         await db.commit()
 
 
@@ -250,7 +252,7 @@ async def get_all_approved_tags():
 
 
 async def get_top_messages(days=None):
-    query = "SELECT t.full_name, SUM(m.msg_count) as total, m.user_id FROM messages m JOIN tg_profiles t ON m.user_id = t.user_id "
+    query = "SELECT COALESCE(t.full_name, u.player_name, 'Игрок'), SUM(m.msg_count) as total, m.user_id FROM messages m LEFT JOIN tg_profiles t ON m.user_id = t.user_id LEFT JOIN users u ON m.user_id = u.user_id"
     params = []
     if days is not None:
         td = (date.today() - timedelta(days=days)).isoformat()
@@ -298,6 +300,19 @@ async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool 
         async with db.execute(query, params) as cursor: return await cursor.fetchall()
 
 
+async def get_top_balance(limit: int = 10):
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = """
+                SELECT COALESCE(t.full_name, u.player_name, 'Игрок'), t.balance, t.user_id
+                FROM tg_profiles t
+                         LEFT JOIN users u ON t.user_id = u.user_id
+                WHERE t.balance > 0
+                ORDER BY t.balance DESC LIMIT ? \
+                """
+        async with db.execute(query, (limit,)) as cursor:
+            return await cursor.fetchall()
+
+
 async def get_tag_to_tg_map():
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT bs_tag, user_id FROM users WHERE is_approved = 1") as cursor:
@@ -324,15 +339,14 @@ async def set_user_role(user_id: int, role: str, status: str):
                          (role, status, user_id))
         await db.commit()
 
-
 async def get_all_users_for_roles():
     async with aiosqlite.connect(DB_NAME) as db:
         query = """
-                SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status
-                FROM users u
-                         JOIN tg_profiles t ON u.user_id = t.user_id
-                WHERE u.is_approved = 1 \
-                """
+            SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status 
+            FROM users u 
+            JOIN tg_profiles t ON u.user_id = t.user_id 
+            WHERE u.is_approved = 1
+        """
         async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
             return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4]} for r in rows]

@@ -8,7 +8,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters.callback_data import CallbackData
 from utils.brawl_api import get_all_club_members, CLAN_TAGS, get_live_club_detailed_stats, get_clan_names
 from utils.database import get_top_messages, get_top_gain, get_top_absolute, get_tag_to_tg_map, get_user_role_by_id, \
-    ROLE_SYMBOLS
+    get_top_balance, ROLE_SYMBOLS
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -54,11 +54,12 @@ async def kb_choose_club(uid: int):
 
 def kb_main_top(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="Феники", callback_data=TopCb(act="eco", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
     ])
 
@@ -130,6 +131,7 @@ async def cmd_top_trigger(message: Message):
     wins_triggers = {"победы", "вины", "побед", "wins", "win"}
     cups_triggers = {"общих", "общие", "кубки", "кубков", "общих кубков", "trophies", "cups", "куб"}
     ranks_triggers = {"ранкед", "лига", "ранг", "ranked", "league", "rank", "эло", "elo"}
+    eco_triggers = {"феники", "эко", "баланс", "богачи", "деньги", "phoenix"}
 
     sent_msg = None
 
@@ -141,6 +143,21 @@ async def cmd_top_trigger(message: Message):
                                         reply_markup=kb_timeframe("cups_gain", "main", uid, c))
     elif args_str in wins_triggers:
         sent_msg = await message.answer("<b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
+    elif args_str in eco_triggers:
+        data = await get_top_balance(10)
+        txt = "<b>Топ богачей (Феники)</b>\n\n"
+        for i, (name, bal, t_uid) in enumerate(data):
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            sym = ROLE_SYMBOLS.get(u_role, "○")
+            name_link = f"<a href='tg://user?id={t_uid}'>{name}</a>" if t_uid else name
+            txt += f"{i + 1}. {sym} {name_link} - {bal} ₣\n"
+        if not data:
+            txt += "Пока никого нет."
+
+        back = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]
+        ])
+        sent_msg = await message.answer(txt, reply_markup=back)
     elif args_str in cups_triggers:
         sent_msg = await message.answer("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -207,6 +224,22 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("<b>Победы:</b>", reply_markup=kb_wins(uid, c))
     elif act == "wins_sd":
         await callback.message.edit_text("<b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
+    elif act == "eco":
+        await callback.message.edit_text("Расчет...")
+        data = await get_top_balance(10)
+        txt = "<b>Топ богачей (Феники)</b>\n\n"
+        for i, (name, bal, t_uid) in enumerate(data):
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            sym = ROLE_SYMBOLS.get(u_role, "○")
+            name_link = f"<a href='tg://user?id={t_uid}'>{name}</a>" if t_uid else name
+            txt += f"{i + 1}. {sym} {name_link} - {bal} ₣\n"
+        if not data:
+            txt += "Пока никого нет."
+
+        back = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
+        ])
+        await callback.message.edit_text(txt, reply_markup=back)
     elif act == "cups_cur":
         await callback.message.edit_text("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -294,7 +327,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 for i, (n, v, t_uid) in enumerate(data):
                     u_role = await get_user_role_by_id(t_uid)
                     sym = ROLE_SYMBOLS.get(u_role, "○")
-                    txt += f"{i + 1}. {sym} {n} ({v})\n"
+                    name_link = f"<a href='tg://user?id={t_uid}'>{n}</a>" if t_uid else n
+                    txt += f"{i + 1}. {sym} {name_link} ({v})\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
             elif act.startswith("cups_gain_"):
                 d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
@@ -305,7 +339,11 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                     tg_id = tg_map.get(tag_str)
                     u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
                     sym = ROLE_SYMBOLS.get(u_role, "○")
-                    txt += f"{i + 1}. {sym} {n} - +{v}\n"
+
+                    # Вот здесь теперь работает гиперссылка
+                    name_link = f"<a href='tg://user?id={tg_id}'>{n}</a>" if tg_id else n
+
+                    txt += f"{i + 1}. {sym} {name_link} - +{v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
         except:
             await callback.message.edit_text("Ошибка вычислений", reply_markup=back)
