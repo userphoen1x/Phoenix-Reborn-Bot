@@ -4,7 +4,7 @@ import aiosqlite
 from datetime import date, timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, LinkPreviewOptions
 from utils.database import get_user_data, get_eco_data, get_user_role_by_id, ROLE_SYMBOLS
 from utils.brawl_api import get_player_stats
 
@@ -75,9 +75,14 @@ async def cmd_profile(message: Message):
             pass
         return
 
-    name, _, _ = db_user
+    player_name, _, _, tg_full_name = db_user
     role = await get_user_role_by_id(target_id)
     sym = ROLE_SYMBOLS.get(role, "○")
+
+    if tg_full_name and tg_full_name.startswith("@"):
+        name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>"
+    else:
+        name_link = f"<a href='tg://user?id={target_id}'>{player_name}</a>"
 
     bs_tag = eco_data.get('bs_tag', '')
     stats = await get_player_stats(bs_tag) if bs_tag else None
@@ -98,7 +103,7 @@ async def cmd_profile(message: Message):
 
     text = (
         f"<b>Профиль игрока</b>\n\n"
-        f"┌ Ник: {sym} <a href='tg://user?id={target_id}'>{name}</a>\n"
+        f"┌ Ник: {sym} <b>{name_link}</b>\n"
         f"├ За день: {gain_str}\n"
         f"├ Общие: {trophies}\n"
         f"├ 3 на 3: {wins3v3}\n"
@@ -108,4 +113,4 @@ async def cmd_profile(message: Message):
         f"└ Баланс: {balance} ₣"
     )
 
-    await message.answer(text, disable_web_page_preview=True)
+    await message.answer(text, link_preview=LinkPreviewOptions(is_disabled=True))

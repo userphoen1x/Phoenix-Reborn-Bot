@@ -155,8 +155,13 @@ async def add_user(user_id: int, bs_tag: str, player_name: str, club_name: str):
 
 async def get_user_data(user_id: int):
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT player_name, club_name, is_approved FROM users WHERE user_id = ?",
-                              (user_id,)) as cursor:
+        query = """
+                SELECT u.player_name, u.club_name, u.is_approved, t.full_name
+                FROM users u
+                         LEFT JOIN tg_profiles t ON u.user_id = t.user_id
+                WHERE u.user_id = ? \
+                """
+        async with db.execute(query, (user_id,)) as cursor:
             return await cursor.fetchone()
 
 
@@ -252,7 +257,12 @@ async def get_all_approved_tags():
 
 
 async def get_top_messages(days=None):
-    query = "SELECT COALESCE(t.full_name, u.player_name, 'Игрок'), SUM(m.msg_count) as total, m.user_id FROM messages m LEFT JOIN tg_profiles t ON m.user_id = t.user_id LEFT JOIN users u ON m.user_id = u.user_id"
+    query = """
+            SELECT t.full_name, u.player_name, SUM(m.msg_count) as total, m.user_id
+            FROM messages m
+                     LEFT JOIN tg_profiles t ON m.user_id = t.user_id
+                     LEFT JOIN users u ON m.user_id = u.user_id \
+            """
     params = []
     if days is not None:
         td = (date.today() - timedelta(days=days)).isoformat()
@@ -260,7 +270,8 @@ async def get_top_messages(days=None):
         params.append(td)
     query += " GROUP BY m.user_id ORDER BY total DESC LIMIT 10"
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute(query, params) as cursor: return await cursor.fetchall()
+        async with db.execute(query, params) as cursor:
+            return await cursor.fetchall()
 
 
 async def get_top_gain(column: str, days: int, tags_filter: list = None):
@@ -281,7 +292,8 @@ async def get_top_gain(column: str, days: int, tags_filter: list = None):
         params.extend(tags_filter)
     query += " GROUP BY s.tag HAVING gain > 0 ORDER BY gain DESC LIMIT 10"
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute(query, params) as cursor: return await cursor.fetchall()
+        async with db.execute(query, params) as cursor:
+            return await cursor.fetchall()
 
 
 async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool = False):
@@ -297,13 +309,14 @@ async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool 
         params.extend(tags_filter)
     query += " GROUP BY tag ORDER BY val DESC LIMIT 10"
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute(query, params) as cursor: return await cursor.fetchall()
+        async with db.execute(query, params) as cursor:
+            return await cursor.fetchall()
 
 
 async def get_top_balance(limit: int = 10):
     async with aiosqlite.connect(DB_NAME) as db:
         query = """
-                SELECT COALESCE(t.full_name, u.player_name, 'Игрок'), t.balance, t.user_id
+                SELECT t.full_name, u.player_name, t.balance, t.user_id
                 FROM tg_profiles t
                          LEFT JOIN users u ON t.user_id = u.user_id
                 WHERE t.balance > 0
@@ -315,9 +328,15 @@ async def get_top_balance(limit: int = 10):
 
 async def get_tag_to_tg_map():
     async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT bs_tag, user_id FROM users WHERE is_approved = 1") as cursor:
+        query = """
+                SELECT u.bs_tag, u.user_id, t.full_name
+                FROM users u
+                         LEFT JOIN tg_profiles t ON u.user_id = t.user_id
+                WHERE u.is_approved = 1 \
+                """
+        async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
-            return {row[0]: row[1] for row in rows}
+            return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
 
 
 async def unlink_user_tag(target_username: str) -> bool:

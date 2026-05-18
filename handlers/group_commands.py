@@ -4,7 +4,8 @@ import aiosqlite
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, ChatPermissions, \
+    LinkPreviewOptions
 from aiogram.filters.callback_data import CallbackData
 from utils.brawl_api import get_all_club_members, CLAN_TAGS, get_live_club_detailed_stats, get_clan_names
 from utils.database import get_top_messages, get_top_gain, get_top_absolute, get_tag_to_tg_map, get_user_role_by_id, \
@@ -40,6 +41,14 @@ def get_rank_name(val: int):
         22: "Про"
     }
     return ranks.get(val, "Без ранга")
+
+
+def make_link(display_name: str, tg_name: str, tg_id: int) -> str:
+    if tg_name and tg_name.startswith("@"):
+        return f"<a href='https://t.me/{tg_name[1:]}'>{display_name}</a>"
+    elif tg_id:
+        return f"<a href='tg://user?id={tg_id}'>{display_name}</a>"
+    return display_name
 
 
 async def kb_choose_club(uid: int):
@@ -126,8 +135,57 @@ async def cmd_top_trigger(message: Message):
         asyncio.create_task(delete_later(sent_msg))
         return
 
+    args_lower = args_str.lower()
+    is_push_direct = False
+    push_days = 1
+    push_title = "за день"
+
+    if any(word in args_lower for word in
+           ["пушеров недели", "пушеров неделя", "пушеры неделя", "пуш неделя", "рост неделя"]):
+        is_push_direct = True
+        push_days = 7
+        push_title = "за неделю"
+    elif any(word in args_lower for word in
+             ["пушеров месяца", "пушеров месяц", "пушеры месяц", "пуш месяц", "рост месяц"]):
+        is_push_direct = True
+        push_days = 30
+        push_title = "за месяц"
+    elif any(word in args_lower for word in ["пушеров", "пушеры", "пуш", "рост кубков", "рост", "ап", "апп"]):
+        is_push_direct = True
+        push_days = 1
+        push_title = "за день"
+
+    if is_push_direct:
+        sent_msg = await message.answer("Сбор данных...")
+        tags_filter = None
+        if c != "ALL":
+            members, err = await get_all_club_members(c)
+            tags_filter = [m["tag"] for m in members] if members else []
+
+        data = await get_top_gain("trophies", push_days, tags_filter)
+        tg_map = await get_tag_to_tg_map()
+
+        txt = f"<b>Топ пушеров ({push_title})</b>\n\n"
+        for i, (n, v, tag_str) in enumerate(data):
+            tg_data = tg_map.get(tag_str)
+            t_uid = tg_data["id"] if tg_data else None
+            tg_name = tg_data["name"] if tg_data else None
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            sym = ROLE_SYMBOLS.get(u_role, "○")
+            name_link = make_link(n, tg_name, t_uid)
+            txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
+
+        if not data:
+            txt += "Пока нет данных для расчета роста (снимки делаются ночью)."
+
+        back = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
+        ])
+        await sent_msg.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
+        asyncio.create_task(delete_later(sent_msg))
+        return
+
     msg_triggers = {"смс", "соо", "сообщение", "сообщения", "sms", "msg", "messages", "чат", "флуд", "писари"}
-    gain_triggers = {"рост", "пушеры", "пуш", "рост кубков", "gain", "push", "pushers", "ап", "апп"}
     wins_triggers = {"победы", "вины", "побед", "wins", "win"}
     cups_triggers = {"общих", "общие", "кубки", "кубков", "общих кубков", "trophies", "cups", "куб"}
     ranks_triggers = {"ранкед", "лига", "ранг", "ranked", "league", "rank", "эло", "elo"}
@@ -138,26 +196,24 @@ async def cmd_top_trigger(message: Message):
     if args_str in msg_triggers:
         sent_msg = await message.answer("<b>Сообщения (Все клубы):</b>",
                                         reply_markup=kb_timeframe("msg", "main", uid, c))
-    elif args_str in gain_triggers:
-        sent_msg = await message.answer("<b>Рост кубков (Все клубы):</b>",
-                                        reply_markup=kb_timeframe("cups_gain", "main", uid, c))
     elif args_str in wins_triggers:
         sent_msg = await message.answer("<b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
     elif args_str in eco_triggers or "top phoenix" in text:
         data = await get_top_balance(10)
         txt = "<b>Топ богачей (₣)</b>\n\n"
-        for i, (name, bal, t_uid) in enumerate(data):
+        for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
+            display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
-            name_link = f"<a href='tg://user?id={t_uid}'>{name}</a>" if t_uid else name
-            txt += f"{i + 1}. {sym} {name_link} - {bal} ₣\n"
+            name_link = make_link(display_name, tg_name, t_uid)
+            txt += f"{i + 1}. {sym} <b>{name_link}</b> - {bal} ₣\n"
         if not data:
             txt += "Пока никого нет."
 
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]
         ])
-        sent_msg = await message.answer(txt, reply_markup=back)
+        sent_msg = await message.answer(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
         sent_msg = await message.answer("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -169,12 +225,14 @@ async def cmd_top_trigger(message: Message):
             tg_map = await get_tag_to_tg_map()
             res = f"<b>ТОП КУБКОВ</b>\n\n"
             for i, m in enumerate(members[:10]):
-                tg_id = tg_map.get(m["tag"])
-                u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
+                tg_data = tg_map.get(m["tag"])
+                t_uid = tg_data["id"] if tg_data else None
+                tg_name = tg_data["name"] if tg_data else None
+                u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
                 sym = ROLE_SYMBOLS.get(u_role, "○")
-                name_link = f"{sym} <a href='tg://user?id={tg_id}'>{m['name']}</a>" if tg_id else f"{sym} {m['name']}"
-                res += f"{i + 1}. {name_link} - {m['trophies']}\n"
-            await sent_msg.edit_text(res)
+                name_link = make_link(m['name'], tg_name, t_uid)
+                res += f"{i + 1}. {sym} <b>{name_link}</b> - {m['trophies']}\n"
+            await sent_msg.edit_text(res, link_preview=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
         sent_msg = await message.answer("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
@@ -186,16 +244,18 @@ async def cmd_top_trigger(message: Message):
             members.sort(key=sort_key, reverse=True)
             txt = f"<b>Ранкед</b>\n\n"
             for i, m in enumerate(members[:10]):
-                tg_id = tg_map.get(m["tag"])
-                u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
+                tg_data = tg_map.get(m["tag"])
+                t_uid = tg_data["id"] if tg_data else None
+                tg_name = tg_data["name"] if tg_data else None
+                u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
                 sym = ROLE_SYMBOLS.get(u_role, "○")
-                name_link = f"{sym} <a href='tg://user?id={tg_id}'>{m['name']}</a>" if tg_id else f"{sym} {m['name']}"
                 r_val = m.get("ranked_curr_rank", 0)
                 e_val = m.get("ranked_curr_elo", 0)
                 r_name = get_rank_name(r_val)
-                txt += f"{i + 1}. {name_link} - {r_name} ({e_val})\n"
+                name_link = make_link(m['name'], tg_name, t_uid)
+                txt += f"{i + 1}. {sym} <b>{name_link}</b> - {r_name} ({e_val})\n"
             if err: txt += f"\nОшибки: {err}"
-            await sent_msg.edit_text(txt)
+            await sent_msg.edit_text(txt, link_preview=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid)
         sent_msg = await message.answer("<b>Выберите клуб:</b>", reply_markup=kb)
@@ -228,18 +288,19 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("Расчет...")
         data = await get_top_balance(10)
         txt = "<b>Топ богачей (₣)</b>\n\n"
-        for i, (name, bal, t_uid) in enumerate(data):
+        for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
+            display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
-            name_link = f"<a href='tg://user?id={t_uid}'>{name}</a>" if t_uid else name
-            txt += f"{i + 1}. {sym} {name_link} - {bal} ₣\n"
+            name_link = make_link(display_name, tg_name, t_uid)
+            txt += f"{i + 1}. {sym} <b>{name_link}</b> - {bal} ₣\n"
         if not data:
             txt += "Пока никого нет."
 
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
         ])
-        await callback.message.edit_text(txt, reply_markup=back)
+        await callback.message.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("Сбор данных...")
         members, err = await get_all_club_members(c)
@@ -252,13 +313,16 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         tg_map = await get_tag_to_tg_map()
         res = f"<b>ТОП КУБКОВ</b>\n\n"
         for i, m in enumerate(members[:10]):
-            tg_id = tg_map.get(m["tag"])
-            u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
+            tg_data = tg_map.get(m["tag"])
+            t_uid = tg_data["id"] if tg_data else None
+            tg_name = tg_data["name"] if tg_data else None
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
-            name_link = f"{sym} <a href='tg://user?id={tg_id}'>{m['name']}</a>" if tg_id else f"{sym} {m['name']}"
-            res += f"{i + 1}. {name_link} - {m['trophies']}\n"
+            name_link = make_link(m['name'], tg_name, t_uid)
+            res += f"{i + 1}. {sym} <b>{name_link}</b> - {m['trophies']}\n"
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]))
+            [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
+                                         link_preview=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("Сбор профилей...")
         members, err = await get_live_club_detailed_stats(c)
@@ -296,20 +360,22 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         members.sort(key=sort_key, reverse=True)
         txt = f"<b>{title}</b>\n\n"
         for i, m in enumerate(members[:10]):
-            tg_id = tg_map.get(m["tag"])
-            u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
+            tg_data = tg_map.get(m["tag"])
+            t_uid = tg_data["id"] if tg_data else None
+            tg_name = tg_data["name"] if tg_data else None
+            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
-            name_link = f"{sym} <a href='tg://user?id={tg_id}'>{m['name']}</a>" if tg_id else f"{sym} {m['name']}"
+            name_link = make_link(m['name'], tg_name, t_uid)
             if act == "ranks_curr":
                 r_val = m.get("ranked_curr_rank", 0)
                 e_val = m.get("ranked_curr_elo", 0)
                 r_name = get_rank_name(r_val)
-                txt += f"{i + 1}. {name_link} - {r_name} ({e_val})\n"
+                txt += f"{i + 1}. {sym} <b>{name_link}</b> - {r_name} ({e_val})\n"
             else:
                 val = sort_key(m)
-                txt += f"{i + 1}. {name_link} - {val}\n"
+                txt += f"{i + 1}. {sym} <b>{name_link}</b> - {val}\n"
         if err: txt += f"\nОшибки: {err}"
-        await callback.message.edit_text(txt, reply_markup=back)
+        await callback.message.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
     else:
         await callback.message.edit_text("Расчет...")
         back = InlineKeyboardMarkup(
@@ -324,24 +390,29 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
                 data = await get_top_messages(d)
                 txt = "<b>Топ сообщений чата</b>\n\n"
-                for i, (n, v, t_uid) in enumerate(data):
+                for i, (tg_name, player_name, v, t_uid) in enumerate(data):
+                    display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
                     u_role = await get_user_role_by_id(t_uid)
                     sym = ROLE_SYMBOLS.get(u_role, "○")
-                    name_link = f"<a href='tg://user?id={t_uid}'>{n}</a>" if t_uid else n
-                    txt += f"{i + 1}. {sym} {name_link} ({v})\n"
-                await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c))
+                    name_link = make_link(display_name, tg_name, t_uid)
+                    txt += f"{i + 1}. {sym} <b>{name_link}</b> ({v})\n"
+                await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c),
+                                                 link_preview=LinkPreviewOptions(is_disabled=True))
             elif act.startswith("cups_gain_"):
                 d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
                 data = await get_top_gain("trophies", d, tags_filter)
                 tg_map = await get_tag_to_tg_map()
                 txt = "<b>Рост кубков</b>\n\n"
                 for i, (n, v, tag_str) in enumerate(data):
-                    tg_id = tg_map.get(tag_str)
-                    u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
+                    tg_data = tg_map.get(tag_str)
+                    t_uid = tg_data["id"] if tg_data else None
+                    tg_name = tg_data["name"] if tg_data else None
+                    u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
                     sym = ROLE_SYMBOLS.get(u_role, "○")
-                    name_link = f"<a href='tg://user?id={tg_id}'>{n}</a>" if tg_id else n
-                    txt += f"{i + 1}. {sym} {name_link} - +{v}\n"
-                await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
+                    name_link = make_link(n, tg_name, t_uid)
+                    txt += f"{i + 1}. {sym} <b>{name_link}</b> - +{v}\n"
+                await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
+                                                 link_preview=LinkPreviewOptions(is_disabled=True))
         except:
             await callback.message.edit_text("Ошибка вычислений", reply_markup=back)
 
@@ -391,196 +462,57 @@ async def cmd_moderation(message: Message, bot: Bot):
 
     if cmd in ["мут", "mute", "бан", "ban"]:
         if idx < len(parts):
-            val_str = parts[idx].lower()
-            if val_str in ["навсегда", "пермач", "forever"]:
-                time_str = "навсегда"
-                dt = None
-                idx += 1
-            elif val_str == "полгода":
-                time_str = "полгода"
-                dt = timedelta(days=180)
-                idx += 1
-            elif val_str.isdigit():
-                val = int(val_str)
-                idx += 1
-                if idx < len(parts):
-                    unit = parts[idx].lower()
-                    idx += 1
-                    time_str = f"{val} {unit}"
-                    if unit.startswith(("мин", "m")):
-                        dt = timedelta(minutes=val)
-                    elif unit.startswith(("час", "h")):
-                        dt = timedelta(hours=val)
-                    elif unit.startswith(("ден", "дн", "d")):
-                        dt = timedelta(days=val)
-                    elif unit.startswith(("недел", "w")):
-                        dt = timedelta(weeks=val)
-                    elif unit.startswith(("мес", "mo")):
-                        dt = timedelta(days=val * 30)
-                    elif unit.startswith(("год", "лет", "y")):
-                        dt = timedelta(days=val * 365)
-                    else:
-                        time_str = ""
-                        idx -= 2
+            first_word = parts[idx].lower()
 
-    if not time_str and cmd in ["мут", "mute"]:
-        time_str = "навсегда"
-
-    reason_parts = parts[idx:]
-    reason = " ".join(reason_parts) if reason_parts else "Не указана"
-
-    admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
-
-    t_role = await get_user_role_by_id(target_id)
-    a_sym = ROLE_SYMBOLS.get(a_role, "○")
-    t_sym = ROLE_SYMBOLS.get(t_role, "○")
-
-    fmt_admin = f"{a_sym} {admin_name}"
-    fmt_target = f"{t_sym} {target_name}"
-
-    try:
-        if cmd in ["мут", "mute"]:
-            until = datetime.now() + dt if dt else None
-            await bot.restrict_chat_member(message.chat.id, target_id,
-                                           permissions=ChatPermissions(can_send_messages=False), until_date=until)
-            action_pub = f"лишен права голоса на {time_str}"
-            action_log = f"замутил пользователя {fmt_target} на {time_str}"
-        elif cmd in ["анмут", "unmute"]:
-            await bot.restrict_chat_member(
-                message.chat.id, target_id,
-                permissions=ChatPermissions(
-                    can_send_messages=True, can_send_audios=True, can_send_documents=True,
-                    can_send_photos=True, can_send_videos=True, can_send_video_notes=True,
-                    can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True,
-                    can_add_web_page_previews=True, can_invite_users=True
-                )
-            )
-            action_pub = "возвращен к полноценному общению"
-            action_log = f"размутил пользователя {fmt_target}"
-        elif cmd in ["кик", "kick"]:
-            await bot.ban_chat_member(message.chat.id, target_id)
-            await bot.unban_chat_member(message.chat.id, target_id)
-            action_pub = "исключен из группы"
-            action_log = f"кикнул пользователя {fmt_target}"
-        elif cmd in ["бан", "ban"]:
-            until = datetime.now() + dt if dt else None
-            await bot.ban_chat_member(message.chat.id, target_id, until_date=until)
-            t_str = f" на {time_str}" if time_str else " навсегда"
-            action_pub = f"забанен{t_str}"
-            action_log = f"забанил пользователя {fmt_target}{t_str}"
-
-        try:
-            await message.delete()
-        except:
-            pass
-
-        if cmd in ["анмут", "unmute"]:
-            pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}."
-            log_text = f"Администратор {fmt_admin} {action_log}."
-        else:
-            pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\nПричина: {reason}"
-            log_text = f"Администратор {fmt_admin} {action_log}.\nПричина: {reason}."
-
-        pub_msg = await message.answer(pub_text)
-        asyncio.create_task(delete_later(pub_msg))
-
-        admin_log_chat = os.getenv("ADMIN_ID")
-        if admin_log_chat:
-            await bot.send_message(admin_log_chat, log_text)
-
-    except Exception as e:
-        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
-        asyncio.create_task(delete_later(err_msg, 10))
-
-
-@router.message(lambda msg: msg.text and msg.text.lower().startswith(
-    ("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")))
-async def cmd_moderation(message: Message, bot: Bot):
-    admin_id = message.from_user.id
-    a_role = await get_user_role_by_id(admin_id)
-
-    if a_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]:
-        return
-
-    parts = message.text.split()
-    if not parts:
-        return
-
-    cmd = parts[0].lower()
-    target_id = None
-    target_name = None
-    idx = 1
-
-    if idx < len(parts) and parts[idx].startswith("@"):
-        target_username = parts[idx]
-        idx += 1
-        db_path = "/app/data/bot_data_v3.db"
-        async with aiosqlite.connect(db_path) as db:
-            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
-                                  (target_username,)) as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    target_id = row[0]
-                    target_name = target_username
-    elif message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        u = message.reply_to_message.from_user
-        target_name = f"@{u.username}" if u.username else u.full_name
-
-    if not target_id:
-        sent_msg = await message.answer(
-            "Не удалось найти пользователя. Укажите @username (если он есть в базе) или ответьте на его сообщение.")
-        asyncio.create_task(delete_later(sent_msg, 10))
-        return
-
-    time_str = ""
-    dt = None
-
-    if cmd in ["мут", "mute", "бан", "ban"]:
-        if idx < len(parts):
-            val_str = parts[idx].lower()
-
-            word_durations = {
-                "навсегда": (None, "навсегда"),
-                "пермач": (None, "навсегда"),
-                "forever": (None, "навсегда"),
-                "минута": (timedelta(minutes=1), "1 минуту"),
-                "минуту": (timedelta(minutes=1), "1 минуту"),
-                "час": (timedelta(hours=1), "1 час"),
-                "день": (timedelta(days=1), "1 день"),
-                "сутки": (timedelta(days=1), "1 день"),
-                "неделя": (timedelta(weeks=1), "1 неделю"),
-                "неделю": (timedelta(weeks=1), "1 неделю"),
-                "месяц": (timedelta(days=30), "1 месяц"),
-                "полгода": (timedelta(days=180), "полгода"),
-                "год": (timedelta(days=365), "1 год")
+            standalone = {
+                "минута": (1, "minutes", "1 минуту"), "минуту": (1, "minutes", "1 минуту"),
+                "минуты": (1, "minutes", "1 минуту"),
+                "час": (1, "hours", "1 час"), "часа": (1, "hours", "1 час"),
+                "день": (1, "days", "1 день"), "сутки": (1, "days", "1 день"), "дня": (1, "days", "1 день"),
+                "неделя": (1, "weeks", "1 неделю"), "неделю": (1, "weeks", "1 неделю"),
+                "недели": (1, "weeks", "1 неделю"),
+                "месяц": (30, "days", "1 месяц"), "месяца": (30, "days", "1 месяц"),
+                "полгода": (180, "days", "полгода"),
+                "год": (365, "days", "1 год"), "года": (365, "days", "1 год"),
+                "навсегда": (None, None, "навсегда"), "пермач": (None, None, "навсегда")
             }
 
-            if val_str in word_durations:
-                dt, time_str = word_durations[val_str]
+            if first_word in standalone:
+                val, unit_type, time_str = standalone[first_word]
+                if val is not None:
+                    dt = timedelta(**{unit_type: val})
+                else:
+                    dt = None
                 idx += 1
-            elif val_str.isdigit():
-                val = int(val_str)
+            elif first_word.isdigit():
+                val = int(first_word)
                 idx += 1
                 if idx < len(parts):
-                    unit = parts[idx].lower()
-                    idx += 1
-                    time_str = f"{val} {unit}"
-                    if unit.startswith(("мин", "m")):
-                        dt = timedelta(minutes=val)
-                    elif unit.startswith(("час", "h")):
-                        dt = timedelta(hours=val)
-                    elif unit.startswith(("ден", "дн", "сут", "d")):
-                        dt = timedelta(days=val)
-                    elif unit.startswith(("недел", "w")):
-                        dt = timedelta(weeks=val)
-                    elif unit.startswith(("мес", "mo")):
-                        dt = timedelta(days=val * 30)
-                    elif unit.startswith(("год", "лет", "y")):
-                        dt = timedelta(days=val * 365)
+                    unit_word = parts[idx].lower()
+                    matched_unit = True
+                    if unit_word.startswith(("мин", "m")):
+                        dt = timedelta(minutes=val); time_str = f"{val} минут"
+                    elif unit_word.startswith(("час", "h")):
+                        dt = timedelta(hours=val); time_str = f"{val} часов"
+                    elif unit_word.startswith(("ден", "дн", "сут", "d")):
+                        dt = timedelta(days=val); time_str = f"{val} дней"
+                    elif unit_word.startswith(("недел", "w")):
+                        dt = timedelta(weeks=val); time_str = f"{val} недель"
+                    elif unit_word.startswith(("мес", "mo")):
+                        dt = timedelta(days=val * 30); time_str = f"{val} месяцев"
+                    elif unit_word.startswith(("год", "лет", "y")):
+                        dt = timedelta(days=val * 365); time_str = f"{val} лет"
                     else:
-                        time_str = ""
-                        idx -= 2
+                        matched_unit = False
+
+                    if matched_unit:
+                        idx += 1
+                    else:
+                        time_str = f"{val} мин"
+                        dt = timedelta(minutes=val)
+                else:
+                    time_str = f"{val} мин"
+                    dt = timedelta(minutes=val)
 
     if not time_str:
         if cmd in ["мут", "mute"]:
@@ -599,8 +531,8 @@ async def cmd_moderation(message: Message, bot: Bot):
     a_sym = ROLE_SYMBOLS.get(a_role, "○")
     t_sym = ROLE_SYMBOLS.get(t_role, "○")
 
-    fmt_admin = f"{a_sym} {admin_name}"
-    fmt_target = f"{t_sym} {target_name}"
+    fmt_admin = f"{a_sym} <b>{admin_name}</b>"
+    fmt_target = f"{t_sym} <b>{target_name}</b>"
 
     try:
         if cmd in ["мут", "mute"]:
@@ -645,7 +577,7 @@ async def cmd_moderation(message: Message, bot: Bot):
             pub_text = f"Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\nПричина: {reason}"
             log_text = f"Администратор {fmt_admin} {action_log}.\nПричина: {reason}."
 
-        pub_msg = await message.answer(pub_text)
+        pub_msg = await message.answer(pub_text, link_preview=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(pub_msg))
 
         admin_log_chat = os.getenv("ADMIN_ID")
@@ -655,3 +587,15 @@ async def cmd_moderation(message: Message, bot: Bot):
     except Exception as e:
         err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
         asyncio.create_task(delete_later(err_msg, 10))
+
+
+@router.message()
+async def message_counter(message: Message):
+    if message.from_user.is_bot:
+        return
+    if message.text:
+        if not message.text.lower().startswith(
+                ("топ", "top", "мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")):
+            from utils.database import increment_message
+            name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            await increment_message(message.from_user.id, message.chat.id, name)
