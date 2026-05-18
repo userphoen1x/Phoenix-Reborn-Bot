@@ -219,7 +219,7 @@ async def cmd_top_trigger(message: Message):
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
-            await sent_msg.edit_text(err_msg)
+            await sent_msg.edit_text(err_msg, link_preview=LinkPreviewOptions(is_disabled=True))
         else:
             members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
             tg_map = await get_tag_to_tg_map()
@@ -238,7 +238,7 @@ async def cmd_top_trigger(message: Message):
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
         if not members:
-            await sent_msg.edit_text("Ошибка.")
+            await sent_msg.edit_text("Ошибка.", link_preview=LinkPreviewOptions(is_disabled=True))
         else:
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
             members.sort(key=sort_key, reverse=True)
@@ -307,7 +307,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         if not members:
             err_msg = f"Ошибка загрузки.\nДетали: {err}" if err else "Ошибка загрузки."
             await callback.message.edit_text(err_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]))
+                [InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
+                                             link_preview=LinkPreviewOptions(is_disabled=True))
             return
         members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
         tg_map = await get_tag_to_tg_map()
@@ -338,7 +339,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             [InlineKeyboardButton(text="Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
 
         if not members:
-            await callback.message.edit_text("Ошибка", reply_markup=back)
+            await callback.message.edit_text("Ошибка", reply_markup=back,
+                                             link_preview=LinkPreviewOptions(is_disabled=True))
             return
 
         if act == "ranks_curr":
@@ -377,7 +379,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back, link_preview=LinkPreviewOptions(is_disabled=True))
     else:
-        await callback.message.edit_text("Расчет...")
+        await callback.message.edit_text("Расчет...", link_preview=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
@@ -414,7 +416,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                                  link_preview=LinkPreviewOptions(is_disabled=True))
         except:
-            await callback.message.edit_text("Ошибка вычислений", reply_markup=back)
+            await callback.message.edit_text("Ошибка вычислений", reply_markup=back,
+                                             link_preview=LinkPreviewOptions(is_disabled=True))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(
@@ -582,10 +585,11 @@ async def cmd_moderation(message: Message, bot: Bot):
 
         admin_log_chat = os.getenv("ADMIN_ID")
         if admin_log_chat:
-            await bot.send_message(admin_log_chat, log_text)
+            await bot.send_message(admin_log_chat, log_text, link_preview=LinkPreviewOptions(is_disabled=True))
 
     except Exception as e:
-        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
+        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.",
+                                       link_preview=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(err_msg, 10))
 
 
