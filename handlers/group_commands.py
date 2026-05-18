@@ -1,5 +1,6 @@
 import os
 import asyncio
+import time
 import aiosqlite
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
@@ -19,6 +20,10 @@ class TopCb(CallbackData, prefix="top"):
     act: str
     uid: int
     c: str
+
+
+# Локальный кэш для антиспама стикерами (user_id -> список timestamp'ов)
+sticker_spam_cache = {}
 
 
 async def delete_later(message: Message, delay: int = 86400):
@@ -652,6 +657,42 @@ async def cmd_moderation(message: Message, bot: Bot):
         err_msg = await message.answer("❌ Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.",
                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(err_msg, 10))
+
+
+@router.message(F.sticker)
+async def sticker_anti_spam(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    now = time.time()
+
+    if user_id not in sticker_spam_cache:
+        sticker_spam_cache[user_id] = []
+
+    # Очищаем старые метки (старше 1 секунды)
+    sticker_spam_cache[user_id] = [t for t in sticker_spam_cache[user_id] if now - t <= 1.0]
+
+    sticker_spam_cache[user_id].append(now)
+
+    if len(sticker_spam_cache[user_id]) > 4:
+        until = datetime.now() + timedelta(minutes=1)
+        try:
+            await bot.restrict_chat_member(
+                message.chat.id,
+                user_id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=until
+            )
+            sticker_spam_cache[user_id] = []  # Очищаем кэш
+
+            u_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
+            role = await get_user_role_by_id(user_id)
+            sym = ROLE_SYMBOLS.get(role, "○")
+
+            msg = await message.answer(
+                f"🔇 Пользователь {sym} <b>{u_name}</b> лишен права голоса на 1 минуту.\n📝 Причина: Флуд стикерами.",
+                link_preview_options=LinkPreviewOptions(is_disabled=True))
+            asyncio.create_task(delete_later(msg, 60))
+        except:
+            pass  # Если админ или нет прав
 
 
 @router.message()
