@@ -39,16 +39,35 @@ async def get_daily_gain(tag: str) -> int:
             return row[0] if row and row[0] is not None else 0
 
 
-@router.message(Command("profile"))
-@router.message(F.text.lower().in_({"профиль", "мой профиль"}))
+@router.message(lambda msg: msg.text and msg.text.lower().startswith(("профиль", "мой профиль", "/profile")))
 async def cmd_profile(message: Message):
-    user_id = message.from_user.id
+    target_id = message.from_user.id
+    parts = message.text.split()
 
-    db_user = await get_user_data(user_id)
-    eco_data = await get_eco_data(user_id)
+    idx = 1
+    if message.text.lower().startswith("мой профиль"):
+        idx = 2
+
+    if len(parts) > idx and parts[idx].startswith("@"):
+        target_username = parts[idx]
+        db_path = "/app/data/bot_data_v3.db"
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                                  (target_username,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    target_id = row[0]
+                else:
+                    await message.answer("Пользователь не найден в базе.")
+                    return
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+
+    db_user = await get_user_data(target_id)
+    eco_data = await get_eco_data(target_id)
 
     if not db_user or not eco_data:
-        sent = await message.answer("Ваш профиль не найден. Привяжите тег через личные сообщения бота.")
+        sent = await message.answer("Профиль не найден. Игрок не привязал тег.")
         await asyncio.sleep(5)
         try:
             await sent.delete()
@@ -57,7 +76,7 @@ async def cmd_profile(message: Message):
         return
 
     name, _, _ = db_user
-    role = await get_user_role_by_id(user_id)
+    role = await get_user_role_by_id(target_id)
     sym = ROLE_SYMBOLS.get(role, "○")
 
     bs_tag = eco_data.get('bs_tag', '')
@@ -79,7 +98,7 @@ async def cmd_profile(message: Message):
 
     text = (
         f"<b>Профиль игрока</b>\n\n"
-        f"┌ Ник: {sym} <a href='tg://user?id={user_id}'>{name}</a>\n"
+        f"┌ Ник: {sym} <a href='tg://user?id={target_id}'>{name}</a>\n"
         f"├ За день: {gain_str}\n"
         f"├ Общие: {trophies}\n"
         f"├ 3 на 3: {wins3v3}\n"

@@ -14,16 +14,23 @@ async def cmd_unlink_tag(message: Message, bot: Bot):
         return
 
     parts = message.text.split()
-    if len(parts) < 2 or not parts[1].startswith("@"):
-        await message.answer("Использование: /unlink @username")
+    target_name = None
+
+    if len(parts) > 1 and parts[1].startswith("@"):
+        target_name = parts[1]
+    elif message.reply_to_message:
+        u = message.reply_to_message.from_user
+        target_name = f"@{u.username}" if u.username else u.full_name
+
+    if not target_name:
+        await message.answer("Укажите @username или ответьте на сообщение пользователя.")
         return
 
-    target = parts[1]
-    success = await unlink_user_tag(target)
+    success = await unlink_user_tag(target_name)
     if success:
-        await message.answer(f"Тег успешно отвязан от {target}. Аккаунт удален из базы бота.")
+        await message.answer(f"Тег успешно отвязан от {target_name}. Аккаунт удален из базы бота.")
     else:
-        await message.answer(f"Пользователь {target} не найден в базе.")
+        await message.answer(f"Пользователь {target_name} не найден в базе.")
 
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot):
