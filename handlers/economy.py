@@ -35,13 +35,13 @@ async def cmd_work(message: Message):
             rem = timedelta(hours=cd_hours) - diff
             mm, ss = divmod(int(rem.total_seconds()), 60)
             hh, mm = divmod(mm, 60)
-            await message.answer(f"Ожидание... Вы сможете работать через {hh}ч {mm}м.")
+            await message.answer(f"⏳ Ожидание... Вы сможете работать через <b>{hh}ч {mm}м</b>.", parse_mode="HTML")
             return
 
     reward = random.randint(50, 150)
     await update_balance(user_id, reward)
     await set_eco_data(user_id, "last_work", now.isoformat())
-    await message.answer(f"Вы успешно поработали и заработали {reward} ₣!")
+    await message.answer(f"✅ <b>УСПЕШНО!</b>\n🔥 Вы поработали и заработали <b>{reward}</b> ₣!", parse_mode="HTML")
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
@@ -70,39 +70,42 @@ async def cmd_pay(message: Message, bot: Bot):
         target_name = f"@{u.username}" if u.username else u.full_name
 
     if not target_id:
-        await message.answer("Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
+        await message.answer("❌ Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
         return
 
     if idx >= len(parts) or not parts[idx].isdigit():
-        await message.answer("Укажите сумму перевода числом. Пример: перевод 100")
+        await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод 100</code>", parse_mode="HTML")
         return
 
     amount = int(parts[idx])
     if amount <= 0: return
 
     sender_id = message.from_user.id
-    if sender_id == target_id: return
+    if sender_id == target_id:
+        await message.answer("❌ Нельзя переводить Феники самому себе.")
+        return
 
     eco_sender = await get_eco_data(sender_id)
     if not eco_sender or eco_sender["balance"] < amount:
-        await message.answer("Недостаточно средств.")
+        await message.answer("❌ Недостаточно средств.")
         return
 
     eco_target = await get_eco_data(target_id)
     if not eco_target:
-        await message.answer("Этот пользователь еще не зарегистрирован в экономической системе бота.")
+        await message.answer("❌ Этот пользователь еще не зарегистрирован в экономической системе бота.")
         return
 
     await update_balance(sender_id, -amount)
     await update_balance(target_id, amount)
-    await message.answer(f"Перевод {amount} ₣ для {target_name} успешен!")
+    await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣",
+                         parse_mode="HTML")
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("рулетка", "roulette")))
 async def cmd_roulette(message: Message):
     parts = message.text.split()
     if len(parts) < 3:
-        await message.answer("Формат: рулетка [сумма] [красное/черное/зеро]")
+        await message.answer("❌ Формат: <code>рулетка [сумма] [красное/черное/зеро]</code>", parse_mode="HTML")
         return
 
     amount_str, bet_type = parts[1], parts[2].lower()
@@ -112,14 +115,15 @@ async def cmd_roulette(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
     if not eco or eco["balance"] < amount:
-        await message.answer("Недостаточно средств.")
+        await message.answer("❌ Недостаточно средств.")
         return
 
     await update_balance(user_id, -amount)
     result_num = random.randint(0, 36)
     is_red = result_num in [1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36]
 
-    color = "зеро" if result_num == 0 else ("красное" if is_red else "черное")
+    color_name = "зеро" if result_num == 0 else ("красное" if is_red else "черное")
+    color_emoji = "🟢" if result_num == 0 else ("🔴" if is_red else "⚫")
 
     win = 0
     if bet_type in ["зеро", "zero", "0"] and result_num == 0:
@@ -131,16 +135,20 @@ async def cmd_roulette(message: Message):
 
     if win > 0:
         await update_balance(user_id, win)
-        await message.answer(f"Выпало {result_num} ({color}). Вы выиграли {win} ₣!")
+        await message.answer(
+            f"🎰 <b>РУЛЕТКА</b>\n\n🎡 Выпало: {color_emoji} <b>{result_num}</b> ({color_name})\n🎉 <b>ВЫИГРЫШ!</b> Вы выиграли <b>{win}</b> ₣!",
+            parse_mode="HTML")
     else:
-        await message.answer(f"Выпало {result_num} ({color}). Ставка сгорела.")
+        await message.answer(
+            f"🎰 <b>РУЛЕТКА</b>\n\n🎡 Выпало: {color_emoji} <b>{result_num}</b> ({color_name})\n😔 <b>ПРОИГРЫШ!</b> Ставка сгорела.",
+            parse_mode="HTML")
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("кости", "dice")))
 async def cmd_dice(message: Message):
     parts = message.text.split()
     if len(parts) < 3:
-        await message.answer("Формат: кости [сумма] [число 1-6]")
+        await message.answer("❌ Формат: <code>кости [сумма] [число 1-6]</code>", parse_mode="HTML")
         return
 
     amount, guess = parts[1], parts[2]
@@ -152,7 +160,7 @@ async def cmd_dice(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
     if not eco or eco["balance"] < amount:
-        await message.answer("Недостаточно средств.")
+        await message.answer("❌ Недостаточно средств.")
         return
 
     await update_balance(user_id, -amount)
@@ -163,7 +171,10 @@ async def cmd_dice(message: Message):
     if dice_msg.dice.value == guess:
         win = amount * 5
         await update_balance(user_id, win)
-        await message.reply(f"Выпало {dice_msg.dice.value}! Вы угадали и выиграли {win} ₣!",
-                            reply_to_message_id=dice_msg.message_id)
+        await message.reply(
+            f"🎲 <b>КОСТИ</b>\n\n🎲 Выпало: <b>{dice_msg.dice.value}</b>\n🎉 <b>ВЫИГРЫШ!</b> Вы угадали и выиграли <b>{win}</b> ₣!",
+            reply_to_message_id=dice_msg.message_id, parse_mode="HTML")
     else:
-        await message.reply(f"Выпало {dice_msg.dice.value}. Вы проиграли.", reply_to_message_id=dice_msg.message_id)
+        await message.reply(
+            f"🎲 <b>КОСТИ</b>\n\n🎲 Выпало: <b>{dice_msg.dice.value}</b>\n😔 <b>ПРОИГРЫШ!</b> Вы не угадали.",
+            reply_to_message_id=dice_msg.message_id, parse_mode="HTML")
