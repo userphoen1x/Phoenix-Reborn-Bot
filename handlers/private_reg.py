@@ -17,7 +17,7 @@ class Registration(StatesGroup):
 
 def get_rules_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Ознакомился", callback_data="rules_accepted")]
+        [InlineKeyboardButton(text="✅ Ознакомился", callback_data="rules_accepted")]
     ])
 
 
@@ -32,21 +32,21 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     except:
         status = "left"
     if status == "kicked":
-        await message.answer("Доступ запрещен. Вы были забанены.")
+        await message.answer("❌ Доступ запрещен. Вы были забанены.")
         return
     user_data = await get_user_data(user_id)
     if status in ["member", "administrator", "creator"]:
         if user_data:
-            await message.answer(f"Твой профиль: <b>{user_data[0]}</b> из <b>{user_data[1]}</b>.")
+            await message.answer(f"👤 Твой профиль: <b>{user_data[0]}</b> из <b>{user_data[1]}</b>.")
         else:
-            await message.answer("Привет! Ты уже в группе, но тег не привязан. Напиши свой <b>Тег</b>:")
+            await message.answer("👋 Привет! Ты уже в группе, но тег не привязан. Напиши свой <b>Тег</b>:")
             await state.set_state(Registration.waiting_for_tag)
         return
     if user_data:
-        await message.answer(f"С возвращением, <b>{user_data[0]}</b>!\nТвоя ссылка готова:",
+        await message.answer(f"👋 С возвращением, <b>{user_data[0]}</b>!\n🔗 Твоя ссылка готова:",
                              reply_markup=get_rules_kb())
         return
-    await message.answer("Привет! Для входа в группу отправь мне свой <b>Тег Brawl Stars</b>:")
+    await message.answer("👋 Привет! Для входа в группу отправь мне свой <b>Тег Brawl Stars</b>:")
     await state.set_state(Registration.waiting_for_tag)
 
 
@@ -62,7 +62,7 @@ async def admin_set_api_key(message: Message):
     new_key = parts[1].strip()
     update_api_key(new_key)
 
-    wait_msg = await message.answer("Ключ обновлен. Проверяю связь...")
+    wait_msg = await message.answer("⏳ Ключ обновлен. Проверяю связь...")
     ok, text = await check_api_connection()
     await wait_msg.edit_text(f"Статус нового ключа:\n{text}")
 
@@ -71,7 +71,7 @@ async def admin_set_api_key(message: Message):
 async def admin_ping(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id): return
-    wait_msg = await message.answer("Проверяю связь с серверами Supercell...")
+    wait_msg = await message.answer("⏳ Проверяю связь с серверами Supercell...")
     ok, text = await check_api_connection()
     await wait_msg.edit_text(text)
 
@@ -82,9 +82,9 @@ async def admin_get_db(message: Message):
     if not admin_id or message.from_user.id != int(admin_id): return
     db_path = "/app/data/bot_data_v3.db"
     if os.path.exists(db_path):
-        await message.answer_document(document=FSInputFile(db_path), caption="База данных")
+        await message.answer_document(document=FSInputFile(db_path), caption="🗄 База данных")
     else:
-        await message.answer("Файл не найден")
+        await message.answer("❌ Файл не найден")
 
 
 @router.message(Registration.waiting_for_tag)
@@ -94,7 +94,7 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     target_chat = os.getenv("TARGET_CHAT_ID")
 
-    wait_msg = await message.answer("Проверка...")
+    wait_msg = await message.answer("⏳ Проверка...")
     result = await check_player(user_tag)
 
     if result["success"] and result["status"] == "member":
@@ -102,7 +102,6 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
         c_name = result.get("club_name", "Phoenix Reborn")
         await add_user(user_id, clean_tag, p_name, c_name)
 
-        # Получаем список участников, чтобы узнать должность
         members, _ = await get_all_club_members()
         player_role = "member"
         if members:
@@ -124,35 +123,35 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot):
             status = "left"
 
         if status in ["member", "administrator", "creator"]:
-            msg_text = f"<b>Идентификация пройдена!</b>\nТег {clean_tag} привязан."
+            msg_text = f"✅ <b>Идентификация пройдена!</b>\n🏷 Тег {clean_tag} привязан."
             if role_ru:
-                msg_text += f"\n\nПроверка прошла успешно. Ваши права {role_ru} выдадутся после проверки вышестоящего руководства."
+                msg_text += f"\n\n⏳ Проверка прошла успешно. Ваши права {role_ru} выдадутся после проверки вышестоящего руководства."
             await wait_msg.edit_text(msg_text)
         else:
-            rules = f"Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n\n"
+            rules = f"👋 Привет, <b>{p_name}</b> из <b>{c_name}</b>!\n\n"
             if role_ru:
-                rules += f"Проверка прошла успешно. Ваши права {role_ru} выдадутся после проверки вышестоящего руководства.\n\n"
+                rules += f"⏳ Проверка прошла успешно. Ваши права {role_ru} выдадутся после проверки вышестоящего руководства.\n\n"
 
             rules += (
-                f"<b>ПРАВИЛА СЕМЕЙСТВА</b>\n\n"
+                f"📜 <b>ПРАВИЛА СЕМЕЙСТВА</b>\n\n"
                 f"<u>НЕЛЬЗЯ:</u>\n"
-                f"1. 18+ контент\n"
-                f"2. Спам\n"
-                f"3. Оскорбления\n"
-                f"4. Реклама\n"
-                f"5. Политика\n"
-                f"6. Доксинг\n"
-                f"7. Конфликты\n"
-                f"8. Попрошайничество\n\n"
+                f"1. 18+ контент 🔞\n"
+                f"2. Спам 🚫\n"
+                f"3. Оскорбления 🤬\n"
+                f"4. Реклама 📢\n"
+                f"5. Политика 🏛\n"
+                f"6. Доксинг 🕵️‍♂️\n"
+                f"7. Конфликты ⚔️\n"
+                f"8. Попрошайничество 🙏\n\n"
                 f"<u>МОЖНО:</u>\n"
-                f"— <i>Материться</i>\n"
-                f"— <i>Подколы</i>"
+                f"— <i>Материться</i> 破\n"
+                f"— <i>Подколы</i> 🃏"
             )
             await wait_msg.edit_text(rules, reply_markup=get_rules_kb())
 
         await state.clear()
     else:
-        await wait_msg.edit_text("Ошибка или ты не в клубе. Проверь синтаксис и введи тег еще раз:")
+        await wait_msg.edit_text("❌ Ошибка или ты не в клубе. Проверь синтаксис и введи тег еще раз:")
 
 
 @router.callback_query(F.data == "rules_accepted")
@@ -161,7 +160,7 @@ async def send_invite_link(callback: CallbackQuery):
     try:
         invite = await callback.bot.create_chat_invite_link(chat_id=target_chat, member_limit=1)
         await save_link(invite.invite_link, callback.from_user.id)
-        await callback.message.edit_text(f"Твоя ссылка:\n{invite.invite_link}")
+        await callback.message.edit_text(f"🔗 Твоя ссылка:\n{invite.invite_link}")
     except:
-        await callback.message.edit_text("Ошибка прав.")
+        await callback.message.edit_text("❌ Ошибка прав.")
     await callback.answer()

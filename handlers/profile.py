@@ -14,14 +14,14 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 def get_rank_name(val: int):
     ranks = {
-        1: "Бронза 1", 2: "Бронза 2", 3: "Бронза 3",
-        4: "Серебро 1", 5: "Серебро 2", 6: "Серебро 3",
-        7: "Золото 1", 8: "Золото 2", 9: "Золото 3",
-        10: "Алмаз 1", 11: "Алмаз 2", 12: "Алмаз 3",
-        13: "Мифик 1", 14: "Мифик 2", 15: "Мифик 3",
-        16: "Лега 1", 17: "Лега 2", 18: "Лега 3",
-        19: "Мастер 1", 20: "Мастер 2", 21: "Мастер 3",
-        22: "Про"
+        1: "🥉 Бронза 1", 2: "🥉 Бронза 2", 3: "🥉 Бронза 3",
+        4: "🥈 Серебро 1", 5: "🥈 Серебро 2", 6: "🥈 Серебро 3",
+        7: "🥇 Золото 1", 8: "🥇 Золото 2", 9: "🥇 Золото 3",
+        10: "💎 Алмаз 1", 11: "💎 Алмаз 2", 12: "💎 Алмаз 3",
+        13: "🟣 Мифик 1", 14: "🟣 Мифик 2", 15: "🟣 Мифик 3",
+        16: "🔴 Лега 1", 17: "🔴 Лега 2", 18: "🔴 Лега 3",
+        19: "🌟 Мастер 1", 20: "🌟 Мастер 2", 21: "🌟 Мастер 3",
+        22: "👑 Про"
     }
     return ranks.get(val, "Без ранга")
 
@@ -45,7 +45,7 @@ async def cmd_profile(message: Message):
                 if row:
                     target_id = row[0]
                 else:
-                    await message.answer("Пользователь не найден в базе.")
+                    await message.answer("❌ Пользователь не найден в базе.")
                     return
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
@@ -54,7 +54,7 @@ async def cmd_profile(message: Message):
     eco_data = await get_eco_data(target_id)
 
     if not db_user or not eco_data:
-        sent = await message.answer("Профиль не найден. Игрок не привязал тег.")
+        sent = await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
         await asyncio.sleep(5)
         try:
             await sent.delete()
@@ -77,7 +77,6 @@ async def cmd_profile(message: Message):
     if stats:
         trophies = stats['trophies']
 
-        # Получаем базовое значение кубков на начало дня
         baseline_map = await get_baseline_trophies(1, [bs_tag])
         baseline = baseline_map.get(bs_tag, trophies)
         gain = trophies - baseline
@@ -95,15 +94,15 @@ async def cmd_profile(message: Message):
     level = eco_data["level"]
 
     text = (
-        f"<b>Профиль игрока</b>\n\n"
-        f"┌ Ник: {sym} <b>{name_link}</b>\n"
-        f"├ За день: {gain_str}\n"
-        f"├ Общие: {trophies}\n"
-        f"├ 3 на 3: {wins3v3}\n"
-        f"├ ШД: {sd_wins}\n"
-        f"├ Ранкед: {rank_name} ({rank_elo})\n"
-        f"├ Уровень: {level}\n"
-        f"└ Баланс: {balance} ₣"
+        f"👤 <b>Профиль игрока</b>\n\n"
+        f"┌ 🎮 Ник: {sym} <b>{name_link}</b>\n"
+        f"├ 📈 За день: {gain_str}\n"
+        f"├ 🏆 Общие: {trophies}\n"
+        f"├ ⚔️ 3 на 3: {wins3v3}\n"
+        f"├ 🌵 ШД: {sd_wins}\n"
+        f"├ 🎖 Ранкед: {rank_name} ({rank_elo})\n"
+        f"├ 🌟 Уровень: {level}\n"
+        f"└ 💰 Баланс: <b>{balance}</b> ₣"
     )
 
     await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
