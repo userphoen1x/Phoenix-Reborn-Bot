@@ -44,7 +44,6 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot):
     await message.answer("Привет! Для входа в группу отправь мне свой <b>Тег Brawl Stars</b>:")
     await state.set_state(Registration.waiting_for_tag)
 
-
 @router.message(Command("set_key"))
 async def admin_set_api_key(message: Message):
     admin_id = os.getenv("ADMIN_ID")

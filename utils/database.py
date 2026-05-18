@@ -1,5 +1,6 @@
 import aiosqlite
 import os
+import json
 from datetime import date, timedelta
 
 DB_NAME = "/app/data/bot_data_v3.db"
@@ -114,6 +115,34 @@ async def init_db():
         await db.commit()
 
 
+async def upgrade_db_roles():
+    async with aiosqlite.connect(DB_NAME) as db:
+        try:
+            await db.execute("ALTER TABLE tg_profiles ADD COLUMN game_role TEXT DEFAULT 'Гость'")
+            await db.execute("ALTER TABLE tg_profiles ADD COLUMN role_status TEXT DEFAULT 'Одобрен'")
+            await db.commit()
+        except Exception:
+            pass
+
+
+async def upgrade_db_economy():
+    async with aiosqlite.connect(DB_NAME) as db:
+        cols = [
+            ("balance", "INTEGER DEFAULT 1000"),
+            ("xp", "INTEGER DEFAULT 0"),
+            ("level", "INTEGER DEFAULT 1"),
+            ("bot_class", "TEXT DEFAULT 'Новичок'"),
+            ("last_work", "TEXT DEFAULT NULL"),
+            ("inventory", "TEXT DEFAULT '{}'")
+        ]
+        for col_name, col_type in cols:
+            try:
+                await db.execute(f"ALTER TABLE tg_profiles ADD COLUMN {col_name} {col_type}")
+            except Exception:
+                pass
+        await db.commit()
+
+
 async def add_user(user_id: int, bs_tag: str, player_name: str, club_name: str):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
@@ -127,6 +156,40 @@ async def get_user_data(user_id: int):
         async with db.execute("SELECT player_name, club_name, is_approved FROM users WHERE user_id = ?",
                               (user_id,)) as cursor:
             return await cursor.fetchone()
+
+
+async def get_eco_data(user_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = """
+                SELECT t.balance, t.xp, t.level, t.bot_class, t.last_work, t.inventory, u.bs_tag
+                FROM tg_profiles t
+                         LEFT JOIN users u ON t.user_id = u.user_id
+                WHERE t.user_id = ? \
+                """
+        async with db.execute(query, (user_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    "balance": row[0], "xp": row[1], "level": row[2],
+                    "bot_class": row[3], "last_work": row[4],
+                    "inventory": json.loads(row[5]) if row[5] else {},
+                    "bs_tag": row[6]
+                }
+            return None
+
+
+async def update_balance(user_id: int, amount: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE tg_profiles SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
+        await db.commit()
+
+
+async def set_eco_data(user_id: int, col: str, value):
+    async with aiosqlite.connect(DB_NAME) as db:
+        if isinstance(value, dict):
+            value = json.dumps(value)
+        await db.execute(f"UPDATE tg_profiles SET {col} = ? WHERE user_id = ?", (value, user_id))
+        await db.commit()
 
 
 async def get_user_role_by_id(user_id: int):
@@ -159,7 +222,7 @@ async def get_link_owner(link: str):
 async def increment_message(user_id: int, chat_id: int, full_name: str):
     today = date.today().isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
-        await db.execute("INSERT OR REPLACE INTO tg_profiles (user_id, full_name) VALUES (?, ?)", (user_id, full_name))
+        await db.execute("INSERT OR IGNORE INTO tg_profiles (user_id, full_name) VALUES (?, ?)", (user_id, full_name))
         await db.execute("""
                          INSERT INTO messages (user_id, chat_id, msg_date, msg_count)
                          VALUES (?, ?, ?, 1) ON CONFLICT(user_id, chat_id, msg_date) DO
@@ -242,20 +305,8 @@ async def get_tag_to_tg_map():
             return {row[0]: row[1] for row in rows}
 
 
-async def upgrade_db_roles():
-    db_path = "/app/data/bot_data_v3.db"
-    async with aiosqlite.connect(db_path) as db:
-        try:
-            await db.execute("ALTER TABLE tg_profiles ADD COLUMN game_role TEXT DEFAULT 'Гость'")
-            await db.execute("ALTER TABLE tg_profiles ADD COLUMN role_status TEXT DEFAULT 'Одобрен'")
-            await db.commit()
-        except Exception:
-            pass
-
-
 async def unlink_user_tag(target_username: str) -> bool:
-    db_path = "/app/data/bot_data_v3.db"
-    async with aiosqlite.connect(db_path) as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
                               (target_username,)) as cursor:
             row = await cursor.fetchone()
@@ -268,8 +319,7 @@ async def unlink_user_tag(target_username: str) -> bool:
 
 
 async def set_user_role(user_id: int, role: str, status: str):
-    db_path = "/app/data/bot_data_v3.db"
-    async with aiosqlite.connect(db_path) as db:
+    async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?",
                          (role, status, user_id))
         await db.commit()

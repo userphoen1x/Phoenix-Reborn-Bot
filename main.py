@@ -7,11 +7,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from dotenv import load_dotenv
+
 from handlers.private_reg import router as reg_router
 from handlers.group_events import router as group_router
 from handlers.group_commands import router as group_cmds_router
 from handlers.founder import router as founder_router
-from utils.database import init_db, upgrade_db_roles
+from handlers.profile import router as profile_router
+from handlers.economy import router as economy_router
+from utils.database import init_db, upgrade_db_roles, upgrade_db_economy
 from utils.scheduler import start_scheduler
 
 
@@ -24,6 +27,7 @@ async def main():
 
     await init_db()
     await upgrade_db_roles()
+    await upgrade_db_economy()
 
     bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
@@ -31,6 +35,8 @@ async def main():
     start_scheduler(bot)
 
     dp.include_router(founder_router)
+    dp.include_router(profile_router)
+    dp.include_router(economy_router)
     dp.include_router(reg_router)
     dp.include_router(group_router)
     dp.include_router(group_cmds_router)

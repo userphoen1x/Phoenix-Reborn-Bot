@@ -314,8 +314,10 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(
     ("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban")))
 async def cmd_moderation(message: Message, bot: Bot):
-    member = await bot.get_chat_member(message.chat.id, message.from_user.id)
-    if member.status not in ["administrator", "creator"]:
+    admin_id = message.from_user.id
+    a_role = await get_user_role_by_id(admin_id)
+
+    if a_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]:
         return
 
     parts = message.text.split()
@@ -392,10 +394,8 @@ async def cmd_moderation(message: Message, bot: Bot):
     reason_parts = parts[idx:]
     reason = " ".join(reason_parts) if reason_parts else "Не указана"
 
-    admin_id = message.from_user.id
     admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
-    a_role = await get_user_role_by_id(admin_id)
     t_role = await get_user_role_by_id(target_id)
     a_sym = ROLE_SYMBOLS.get(a_role, "○")
     t_sym = ROLE_SYMBOLS.get(t_role, "○")
@@ -454,7 +454,7 @@ async def cmd_moderation(message: Message, bot: Bot):
             await bot.send_message(admin_log_chat, log_text)
 
     except Exception as e:
-        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель является администратором.")
+        err_msg = await message.answer("Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
         asyncio.create_task(delete_later(err_msg, 10))
 
 

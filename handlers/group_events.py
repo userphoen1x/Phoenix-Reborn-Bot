@@ -6,7 +6,6 @@ from utils.database import get_user_data, get_link_owner
 
 router = Router()
 
-
 @router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
 async def on_user_join(event: ChatMemberUpdated, bot: Bot):
     target_chat = os.getenv("TARGET_CHAT_ID")
@@ -51,7 +50,6 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
         log += "Напрямую."
 
     if admin_log_chat: await bot.send_message(admin_log_chat, log)
-
 
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
 async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
