@@ -105,7 +105,7 @@ async def cmd_profile(message: Message):
         f"├ ШД: {sd_wins}\n"
         f"├ Ранкед: {rank_name} ({rank_elo})\n"
         f"├ Уровень: {level}\n"
-        f"└ Баланс: {balance} Феников."
+        f"└ Баланс: {balance} ₣"
     )
 
     await message.answer(text, disable_web_page_preview=True)

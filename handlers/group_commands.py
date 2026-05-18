@@ -55,7 +55,7 @@ async def kb_choose_club(uid: int):
 def kb_main_top(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()),
-         InlineKeyboardButton(text="Феники", callback_data=TopCb(act="eco", uid=uid, c=c).pack())],
+         InlineKeyboardButton(text="Баланс (₣)", callback_data=TopCb(act="eco", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack()),
          InlineKeyboardButton(text="Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()),
@@ -131,7 +131,7 @@ async def cmd_top_trigger(message: Message):
     wins_triggers = {"победы", "вины", "побед", "wins", "win"}
     cups_triggers = {"общих", "общие", "кубки", "кубков", "общих кубков", "trophies", "cups", "куб"}
     ranks_triggers = {"ранкед", "лига", "ранг", "ranked", "league", "rank", "эло", "elo"}
-    eco_triggers = {"феники", "эко", "баланс", "богачи", "деньги", "phoenix"}
+    eco_triggers = {"феники", "феников", "₣", "f", "эко", "баланс", "богачи", "деньги", "phoenix", "balance", "eco"}
 
     sent_msg = None
 
@@ -143,9 +143,9 @@ async def cmd_top_trigger(message: Message):
                                         reply_markup=kb_timeframe("cups_gain", "main", uid, c))
     elif args_str in wins_triggers:
         sent_msg = await message.answer("<b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
-    elif args_str in eco_triggers:
+    elif args_str in eco_triggers or "top phoenix" in text:
         data = await get_top_balance(10)
-        txt = "<b>Топ богачей (Феники)</b>\n\n"
+        txt = "<b>Топ богачей (₣)</b>\n\n"
         for i, (name, bal, t_uid) in enumerate(data):
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
@@ -227,7 +227,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
     elif act == "eco":
         await callback.message.edit_text("Расчет...")
         data = await get_top_balance(10)
-        txt = "<b>Топ богачей (Феники)</b>\n\n"
+        txt = "<b>Топ богачей (₣)</b>\n\n"
         for i, (name, bal, t_uid) in enumerate(data):
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
             sym = ROLE_SYMBOLS.get(u_role, "○")
@@ -339,10 +339,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                     tg_id = tg_map.get(tag_str)
                     u_role = await get_user_role_by_id(tg_id) if tg_id else "Гость"
                     sym = ROLE_SYMBOLS.get(u_role, "○")
-
-                    # Вот здесь теперь работает гиперссылка
                     name_link = f"<a href='tg://user?id={tg_id}'>{n}</a>" if tg_id else n
-
                     txt += f"{i + 1}. {sym} {name_link} - +{v}\n"
                 await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
         except:

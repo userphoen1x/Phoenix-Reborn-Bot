@@ -41,7 +41,7 @@ async def cmd_work(message: Message):
     reward = random.randint(50, 150)
     await update_balance(user_id, reward)
     await set_eco_data(user_id, "last_work", now.isoformat())
-    await message.answer(f"Вы успешно поработали и заработали {reward} Ф!")
+    await message.answer(f"Вы успешно поработали и заработали {reward} ₣!")
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
@@ -95,7 +95,7 @@ async def cmd_pay(message: Message, bot: Bot):
 
     await update_balance(sender_id, -amount)
     await update_balance(target_id, amount)
-    await message.answer(f"Перевод {amount} Ф для {target_name} успешен!")
+    await message.answer(f"Перевод {amount} ₣ для {target_name} успешен!")
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("рулетка", "roulette")))
@@ -131,7 +131,7 @@ async def cmd_roulette(message: Message):
 
     if win > 0:
         await update_balance(user_id, win)
-        await message.answer(f"Выпало {result_num} ({color}). Вы выиграли {win} Ф!")
+        await message.answer(f"Выпало {result_num} ({color}). Вы выиграли {win} ₣!")
     else:
         await message.answer(f"Выпало {result_num} ({color}). Ставка сгорела.")
 
@@ -163,7 +163,7 @@ async def cmd_dice(message: Message):
     if dice_msg.dice.value == guess:
         win = amount * 5
         await update_balance(user_id, win)
-        await message.reply(f"Выпало {dice_msg.dice.value}! Вы угадали и выиграли {win} Ф!",
+        await message.reply(f"Выпало {dice_msg.dice.value}! Вы угадали и выиграли {win} ₣!",
                             reply_to_message_id=dice_msg.message_id)
     else:
         await message.reply(f"Выпало {dice_msg.dice.value}. Вы проиграли.", reply_to_message_id=dice_msg.message_id)
