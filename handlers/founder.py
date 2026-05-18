@@ -7,10 +7,18 @@ from utils.database import unlink_user_tag, get_user_data, set_user_role, ROLE_S
 
 router = Router()
 
+def is_superadmin(user_id: int) -> bool:
+    founder_id = os.getenv("FOUNDER_ID")
+    admin_id = os.getenv("ADMIN_ID")
+    if founder_id and str(user_id) == str(founder_id):
+        return True
+    if admin_id and str(user_id) == str(admin_id):
+        return True
+    return False
+
 @router.message(Command("unlink"))
 async def cmd_unlink_tag(message: Message, bot: Bot):
-    founder_id = os.getenv("FOUNDER_ID")
-    if not founder_id or message.from_user.id != int(founder_id):
+    if not is_superadmin(message.from_user.id):
         return
 
     parts = message.text.split()
@@ -34,8 +42,7 @@ async def cmd_unlink_tag(message: Message, bot: Bot):
 
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot):
-    founder_id = os.getenv("FOUNDER_ID")
-    if not founder_id or callback.from_user.id != int(founder_id):
+    if not is_superadmin(callback.from_user.id):
         await callback.answer("Нет прав", show_alert=True)
         return
 
@@ -77,8 +84,7 @@ async def approve_role(callback: CallbackQuery, bot: Bot):
 
 @router.callback_query(F.data.startswith("role_reject:"))
 async def reject_role(callback: CallbackQuery):
-    founder_id = os.getenv("FOUNDER_ID")
-    if not founder_id or callback.from_user.id != int(founder_id):
+    if not is_superadmin(callback.from_user.id):
         await callback.answer("Нет прав", show_alert=True)
         return
 
@@ -90,8 +96,7 @@ async def reject_role(callback: CallbackQuery):
 
 @router.message(Command("force_roles"))
 async def cmd_force_roles(message: Message, bot: Bot):
-    founder_id = os.getenv("FOUNDER_ID")
-    if not founder_id or message.from_user.id != int(founder_id):
+    if not is_superadmin(message.from_user.id):
         return
     await message.answer("Запускаю ручную проверку ролей. Ждите...")
     from utils.scheduler import check_roles

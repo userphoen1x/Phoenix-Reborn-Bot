@@ -1,10 +1,13 @@
 import os
+import asyncio
 from aiogram import Router, Bot
 from aiogram.types import ChatMemberUpdated
 from aiogram.filters import ChatMemberUpdatedFilter, IS_NOT_MEMBER, IS_MEMBER
 from utils.database import get_user_data, get_link_owner
+from utils.scheduler import check_roles
 
 router = Router()
+
 
 @router.chat_member(ChatMemberUpdatedFilter(IS_NOT_MEMBER >> IS_MEMBER))
 async def on_user_join(event: ChatMemberUpdated, bot: Bot):
@@ -38,6 +41,9 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
             if data:
                 await bot.send_message(event.chat.id, f"Привет, <b>{data[0]}</b> из <b>{data[1]}</b>!")
                 log += f"Зашел по своей ссылке. Игрок: {data[0]} из {data[1]}"
+
+                # Мгновенная проверка ролей для вошедшего
+                asyncio.create_task(check_roles(bot))
             else:
                 await event.chat.ban(user_id)
                 await event.chat.unban(user_id)
@@ -46,10 +52,17 @@ async def on_user_join(event: ChatMemberUpdated, bot: Bot):
         else:
             c_name = f"@{creator.username}" if creator.username else creator.full_name
             log += f"зашел в группу по Админ-ссылке ({c_name})"
+            data = await get_user_data(user_id)
+            if data:
+                asyncio.create_task(check_roles(bot))
     else:
         log += "Напрямую."
+        data = await get_user_data(user_id)
+        if data:
+            asyncio.create_task(check_roles(bot))
 
     if admin_log_chat: await bot.send_message(admin_log_chat, log)
+
 
 @router.chat_member(ChatMemberUpdatedFilter(IS_MEMBER >> IS_NOT_MEMBER))
 async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
@@ -72,7 +85,7 @@ async def on_user_leave(event: ChatMemberUpdated, bot: Bot):
                 msg = f"{user_str} был забанен Админом {a_name}. Данных о игровом аккаунте нет."
         else:
             if data:
-                msg = f"Выход:Игрок <b>{data[0]}</b> из ({data[1]}) вышел"
+                msg = f"Выход: Игрок <b>{data[0]}</b> из ({data[1]}) вышел"
             else:
                 msg = f"{user_str} вышел. Данных о игровом аккаунте нет."
         await bot.send_message(admin_log_chat, msg)
