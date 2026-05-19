@@ -22,7 +22,6 @@ class TopCb(CallbackData, prefix="top"):
     c: str
 
 
-# Локальный кэш для антиспама стикерами (user_id -> список timestamp'ов)
 sticker_spam_cache = {}
 
 
@@ -69,7 +68,6 @@ async def kb_choose_club(uid: int):
 
 def kb_main_top(uid: int, c: str):
     buttons = []
-    # Кнопки "Сообщения" и "Богачи" показываем только если выбрана категория "Всё семейство"
     if c == "ALL":
         buttons.append([
             InlineKeyboardButton(text="💬 Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()),
@@ -83,7 +81,12 @@ def kb_main_top(uid: int, c: str):
 
     buttons.append([
         InlineKeyboardButton(text="⚔️ Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()),
-        InlineKeyboardButton(text="🎖 Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())
+        InlineKeyboardButton(text="👕 Скины", callback_data=TopCb(act="skins", uid=uid, c=c).pack())
+    ])
+
+    buttons.append([
+        InlineKeyboardButton(text="🎖 Ранкед (Тек.)", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack()),
+        InlineKeyboardButton(text="🏆 Ранкед (Макс.)", callback_data=TopCb(act="ranks_high", uid=uid, c=c).pack())
     ])
 
     buttons.append(
@@ -114,6 +117,21 @@ def kb_wins_sd(uid: int, c: str):
         [InlineKeyboardButton(text="👥 Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack()),
          InlineKeyboardButton(text="👤 Соло", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="wins", uid=uid, c=c).pack())]
+    ])
+
+
+def kb_skins(uid: int, c: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 В сумме", callback_data=TopCb(act="skins_tot", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="🟢 Редкие", callback_data=TopCb(act="skins_rare", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="🔵 Сверхредкие", callback_data=TopCb(act="skins_srare", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="🟣 Эпические", callback_data=TopCb(act="skins_epic", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="🔴 Мифические", callback_data=TopCb(act="skins_mythic", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="🟡 Легендарные", callback_data=TopCb(act="skins_leg", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="⚡️ Гипер", callback_data=TopCb(act="skins_hyper", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="⚪️ Серебряные", callback_data=TopCb(act="skins_silver", uid=uid, c=c).pack()),
+         InlineKeyboardButton(text="🟡 Золотые", callback_data=TopCb(act="skins_gold", uid=uid, c=c).pack())],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
     ])
 
 
@@ -225,6 +243,7 @@ async def cmd_top_trigger(message: Message):
     cups_triggers = {"общих", "общие", "кубки", "кубков", "общих кубков", "trophies", "cups", "куб"}
     ranks_triggers = {"ранкед", "лига", "ранг", "ranked", "league", "rank", "эло", "elo"}
     eco_triggers = {"феники", "феников", "₣", "f", "эко", "баланс", "богачи", "деньги", "phoenix", "balance", "eco"}
+    skins_triggers = {"скины", "скинов", "skins", "skin"}
 
     sent_msg = None
 
@@ -234,6 +253,8 @@ async def cmd_top_trigger(message: Message):
                                         reply_markup=kb_timeframe("msg", "main", uid, c))
     elif args_str in wins_triggers:
         sent_msg = await message.answer("⚔️ <b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
+    elif args_str in skins_triggers:
+        sent_msg = await message.answer("👕 <b>Выберите категорию скинов:</b>", reply_markup=kb_skins(uid, c))
     elif args_str in eco_triggers or "top phoenix" in text:
         if c != "ALL": return
         data = await get_top_balance(10)
@@ -326,6 +347,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("⚔️ <b>Победы:</b>", reply_markup=kb_wins(uid, c))
     elif act == "wins_sd":
         await callback.message.edit_text("🌵 <b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
+    elif act == "skins":
+        await callback.message.edit_text("👕 <b>Выберите категорию скинов:</b>", reply_markup=kb_skins(uid, c))
     elif act == "eco":
         if c != "ALL": return
         await callback.message.edit_text("⏳ Собираю данные...",
@@ -372,7 +395,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
-    elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
+    elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr", "ranks_high"] or act.startswith("skins_"):
         await callback.message.edit_text("⏳ Собираю данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
         members, err = await get_live_club_detailed_stats(c)
@@ -382,8 +405,11 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             back_act = "wins_sd"
         elif act.startswith("wins_"):
             back_act = "wins"
+        elif act.startswith("skins_"):
+            back_act = "skins"
         else:
             back_act = "cat"
+
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
 
@@ -394,7 +420,10 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
         if act == "ranks_curr":
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
-            title = "🎖 Ранкед"
+            title = "🎖 Ранкед (Текущий)"
+        elif act == "ranks_high":
+            sort_key = lambda x: x.get("highestRankedLeagueSeason", 0)
+            title = "🏆 Ранкед (Рекорд)"
         elif act == "wins_3v3":
             sort_key = lambda x: x.get("wins_3v3", 0)
             title = "⚔️ 3 на 3"
@@ -404,6 +433,33 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         elif act == "wins_sd_duo":
             sort_key = lambda x: x.get("duo_wins", 0)
             title = "👥 Дуо"
+        elif act == "skins_tot":
+            sort_key = lambda x: x.get("skins_total", 0)
+            title = "👕 Скины (В сумме)"
+        elif act == "skins_rare":
+            sort_key = lambda x: x.get("skins_rare", 0)
+            title = "🟢 Редкие скины"
+        elif act == "skins_srare":
+            sort_key = lambda x: x.get("skins_srare", 0)
+            title = "🔵 Сверхредкие скины"
+        elif act == "skins_epic":
+            sort_key = lambda x: x.get("skins_epic", 0)
+            title = "🟣 Эпические скины"
+        elif act == "skins_mythic":
+            sort_key = lambda x: x.get("skins_mythic", 0)
+            title = "🔴 Мифические скины"
+        elif act == "skins_leg":
+            sort_key = lambda x: x.get("skins_leg", 0)
+            title = "🟡 Легендарные скины"
+        elif act == "skins_hyper":
+            sort_key = lambda x: x.get("skins_hyper", 0)
+            title = "⚡️ Гиперзарядные скины"
+        elif act == "skins_silver":
+            sort_key = lambda x: x.get("skins_silver", 0)
+            title = "⚪️ Серебряные скины"
+        elif act == "skins_gold":
+            sort_key = lambda x: x.get("skins_gold", 0)
+            title = "🟡 Золотые скины"
 
         members.sort(key=sort_key, reverse=True)
         txt = f"<b>{title}</b>\n\n"
@@ -415,14 +471,20 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(m['name'], tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            if act == "ranks_curr":
-                r_val = m.get("ranked_curr_rank", 0)
-                e_val = m.get("ranked_curr_elo", 0)
+
+            if act in ["ranks_curr", "ranks_high"]:
+                if act == "ranks_curr":
+                    r_val = m.get("ranked_curr_rank", 0)
+                    e_val = m.get("ranked_curr_elo", 0)
+                else:
+                    r_val = m.get("highestRankedLeagueSeason", 0)
+                    e_val = m.get("highestRankedElo", "???")
                 r_name = get_rank_name(r_val)
                 txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
             else:
                 val = sort_key(m)
                 txt += f"{place} {sym} {name_link}: {val}\n"
+
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back,
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -446,6 +508,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("⏳ Собираю данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
 
+        back = InlineKeyboardMarkup(inline_keyboard=[
+            [[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())]]])
         try:
             live_members, err = await get_live_club_detailed_stats(c)
             if not live_members:
@@ -485,10 +549,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
 
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
-
         except Exception as e:
-            back = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())]])
             await callback.message.edit_text("❌ Ошибка вычислений", reply_markup=back,
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
 
@@ -607,8 +668,8 @@ async def cmd_moderation(message: Message, bot: Bot):
     a_sym = ROLE_SYMBOLS.get(a_role, "👻")
     t_sym = ROLE_SYMBOLS.get(t_role, "👻")
 
-    fmt_admin = f"{a_sym} {admin_name}"
-    fmt_target = f"{t_sym} {target_name}"
+    fmt_admin = f"{a_sym} <b>{admin_name}</b>"
+    fmt_target = f"{t_sym} <b>{target_name}</b>"
 
     try:
         if cmd in ["мут", "mute"]:
@@ -683,7 +744,6 @@ async def sticker_anti_spam(message: Message, bot: Bot):
     if user_id not in sticker_spam_cache:
         sticker_spam_cache[user_id] = []
 
-    # Очищаем старые метки (старше 1 секунды)
     sticker_spam_cache[user_id] = [t for t in sticker_spam_cache[user_id] if now - t <= 1.0]
 
     sticker_spam_cache[user_id].append(now)
@@ -697,7 +757,7 @@ async def sticker_anti_spam(message: Message, bot: Bot):
                 permissions=ChatPermissions(can_send_messages=False),
                 until_date=until
             )
-            sticker_spam_cache[user_id] = []  # Очищаем кэш
+            sticker_spam_cache[user_id] = []
 
             u_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             role = await get_user_role_by_id(user_id)
@@ -708,7 +768,7 @@ async def sticker_anti_spam(message: Message, bot: Bot):
                 link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(msg, 60))
         except:
-            pass  # Если админ или нет прав
+            pass
 
 
 @router.message()
