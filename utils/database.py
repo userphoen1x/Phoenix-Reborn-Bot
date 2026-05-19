@@ -6,17 +6,17 @@ from datetime import datetime, date, timedelta
 DB_NAME = "/app/data/bot_data_v3.db"
 
 ROLE_SYMBOLS = {
-    "Основатель": "♚",
-    "Программист": "⚙",
-    "Президент": "✦",
-    "Вице-президент": "✧",
-    "Ветеран": "◈",
-    "Участник": "●",
-    "Гость": "○"
+    "Основатель": "👑",
+    "Программист": "👨‍💻",
+    "Президент": "🌟",
+    "Вице-президент": "⭐",
+    "Ветеран": "🎖",
+    "Участник": "👤",
+    "Гость": "👻"
 }
 
-
 async def init_db():
+# ... остальной код оставляешь без изменений ...
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
                          CREATE TABLE IF NOT EXISTS users

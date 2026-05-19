@@ -68,15 +68,27 @@ async def kb_choose_club(uid: int):
 
 
 def kb_main_top(uid: int, c: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()),
-         InlineKeyboardButton(text="💰 Баланс (₣)", callback_data=TopCb(act="eco", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="📈 Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack()),
-         InlineKeyboardButton(text="🏆 Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="⚔️ Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()),
-         InlineKeyboardButton(text="🎖 Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="⬅️ Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]
+    buttons = []
+    # Кнопки "Сообщения" и "Богачи" показываем только если выбрана категория "Всё семейство"
+    if c == "ALL":
+        buttons.append([
+            InlineKeyboardButton(text="💬 Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()),
+            InlineKeyboardButton(text="💰 Богачи", callback_data=TopCb(act="eco", uid=uid, c=c).pack())
+        ])
+
+    buttons.append([
+        InlineKeyboardButton(text="📈 Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack()),
+        InlineKeyboardButton(text="🏆 Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())
     ])
+
+    buttons.append([
+        InlineKeyboardButton(text="⚔️ Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()),
+        InlineKeyboardButton(text="🎖 Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())
+    ])
+
+    buttons.append(
+        [InlineKeyboardButton(text="⬅️ Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def kb_timeframe(prefix: str, back: str, uid: int, c: str):
@@ -91,7 +103,6 @@ def kb_timeframe(prefix: str, back: str, uid: int, c: str):
 
 def kb_wins(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 В сумме", callback_data=TopCb(act="wins_tot", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="⚔️ 3 на 3", callback_data=TopCb(act="wins_3v3", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="🌵 ШД", callback_data=TopCb(act="wins_sd", uid=uid, c=c).pack())],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
@@ -110,7 +121,7 @@ def kb_wins_sd(uid: int, c: str):
 async def admin_force_scan(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id): return
-    sent_msg = await message.answer("⏳ Сбор данных запущен...")
+    sent_msg = await message.answer("⏳ Собираю данные...")
     asyncio.create_task(delete_later(sent_msg))
     from utils.scheduler import collect_daily_stats
     await collect_daily_stats()
@@ -162,7 +173,7 @@ async def cmd_top_trigger(message: Message):
         push_title = "за день"
 
     if is_push_direct:
-        sent_msg = await message.answer("⏳ Сбор live-данных из игры...",
+        sent_msg = await message.answer("⏳ Собираю данные...",
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
         live_members, err = await get_live_club_detailed_stats(c)
@@ -194,10 +205,10 @@ async def cmd_top_trigger(message: Message):
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(n, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} <b>{name_link}</b> - +{v} 🏆\n"
+            txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
 
         if not results:
             txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
@@ -218,20 +229,22 @@ async def cmd_top_trigger(message: Message):
     sent_msg = None
 
     if args_str in msg_triggers:
+        if c != "ALL": return
         sent_msg = await message.answer("💬 <b>Сообщения (Все клубы):</b>",
                                         reply_markup=kb_timeframe("msg", "main", uid, c))
     elif args_str in wins_triggers:
         sent_msg = await message.answer("⚔️ <b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
     elif args_str in eco_triggers or "top phoenix" in text:
+        if c != "ALL": return
         data = await get_top_balance(10)
         txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
         for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} <b>{name_link}</b> - {bal} ₣\n"
+            txt += f"{place} {sym} {name_link}: {bal} ₣\n"
         if not data:
             txt += "📭 Пока никого нет."
 
@@ -241,7 +254,7 @@ async def cmd_top_trigger(message: Message):
         sent_msg = await message.answer(txt, reply_markup=back,
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
-        sent_msg = await message.answer("⏳ Сбор данных...")
+        sent_msg = await message.answer("⏳ Собираю данные...")
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки."
@@ -255,13 +268,13 @@ async def cmd_top_trigger(message: Message):
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
                 u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-                sym = ROLE_SYMBOLS.get(u_role, "○")
+                sym = ROLE_SYMBOLS.get(u_role, "👻")
                 name_link = make_link(m['name'], tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-                res += f"{place} {sym} <b>{name_link}</b> - {m['trophies']}\n"
+                res += f"{place} {sym} {name_link}: {m['trophies']}\n"
             await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
-        sent_msg = await message.answer("⏳ Сбор профилей...")
+        sent_msg = await message.answer("⏳ Собираю данные...")
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
         if not members:
@@ -275,13 +288,13 @@ async def cmd_top_trigger(message: Message):
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
                 u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-                sym = ROLE_SYMBOLS.get(u_role, "○")
+                sym = ROLE_SYMBOLS.get(u_role, "👻")
                 r_val = m.get("ranked_curr_rank", 0)
                 e_val = m.get("ranked_curr_elo", 0)
                 r_name = get_rank_name(r_val)
                 name_link = make_link(m['name'], tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-                txt += f"{place} {sym} <b>{name_link}</b> - {r_name} ({e_val})\n"
+                txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
             if err: txt += f"\nОшибки: {err}"
             await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
@@ -305,6 +318,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
     elif act == "cat":
         await callback.message.edit_text("📂 <b>Категория:</b>", reply_markup=kb_main_top(uid, c))
     elif act == "msg":
+        if c != "ALL": return
         await callback.message.edit_text("💬 <b>Сообщения:</b>", reply_markup=kb_timeframe("msg", "cat", uid, c))
     elif act == "cups_gain":
         await callback.message.edit_text("📈 <b>Рост кубков:</b>", reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
@@ -313,16 +327,18 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
     elif act == "wins_sd":
         await callback.message.edit_text("🌵 <b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
     elif act == "eco":
-        await callback.message.edit_text("⏳ Расчет...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        if c != "ALL": return
+        await callback.message.edit_text("⏳ Собираю данные...",
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
         data = await get_top_balance(10)
         txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
         for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} <b>{name_link}</b> - {bal} ₣\n"
+            txt += f"{place} {sym} {name_link}: {bal} ₣\n"
         if not data:
             txt += "📭 Пока никого нет."
 
@@ -332,7 +348,8 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text(txt, reply_markup=back,
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
-        await callback.message.edit_text("⏳ Сбор данных...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text("⏳ Собираю данные...",
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
         members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки."
@@ -348,15 +365,15 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(m['name'], tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            res += f"{place} {sym} <b>{name_link}</b> - {m['trophies']}\n"
+            res += f"{place} {sym} {name_link}: {m['trophies']}\n"
         await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]),
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
-    elif act in ["wins_tot", "wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
-        await callback.message.edit_text("⏳ Сбор профилей...",
+    elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
+        await callback.message.edit_text("⏳ Собираю данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
         members, err = await get_live_club_detailed_stats(c)
         tg_map = await get_tag_to_tg_map()
@@ -378,9 +395,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         if act == "ranks_curr":
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
             title = "🎖 Ранкед"
-        elif act == "wins_tot":
-            sort_key = lambda x: x.get("solo_wins", 0) + x.get("duo_wins", 0) + x.get("wins_3v3", 0)
-            title = "⚔️ В сумме"
         elif act == "wins_3v3":
             sort_key = lambda x: x.get("wins_3v3", 0)
             title = "⚔️ 3 на 3"
@@ -398,41 +412,40 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
             u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(m['name'], tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
             if act == "ranks_curr":
                 r_val = m.get("ranked_curr_rank", 0)
                 e_val = m.get("ranked_curr_elo", 0)
                 r_name = get_rank_name(r_val)
-                txt += f"{place} {sym} <b>{name_link}</b> - {r_name} ({e_val})\n"
+                txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
             else:
                 val = sort_key(m)
-                txt += f"{place} {sym} <b>{name_link}</b> - {val}\n"
+                txt += f"{place} {sym} {name_link}: {val}\n"
         if err: txt += f"\nОшибки: {err}"
         await callback.message.edit_text(txt, reply_markup=back,
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("msg_"):
-        await callback.message.edit_text("⏳ Расчет...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text("⏳ Собираю данные...",
+                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
         d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
         data = await get_top_messages(d)
         txt = "💬 <b>Топ сообщений чата</b>\n\n"
         for i, (tg_name, player_name, v, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             u_role = await get_user_role_by_id(t_uid)
-            sym = ROLE_SYMBOLS.get(u_role, "○")
+            sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} <b>{name_link}</b> ({v})\n"
+            txt += f"{place} {sym} {name_link}: {v}\n"
         await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c),
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("cups_gain_"):
         d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
-        await callback.message.edit_text("⏳ Сбор live-данных из игры...",
+        await callback.message.edit_text("⏳ Собираю данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
 
-        back = InlineKeyboardMarkup(inline_keyboard=[
-            [[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())]]])
         try:
             live_members, err = await get_live_club_detailed_stats(c)
             if not live_members:
@@ -462,17 +475,20 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
                 u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
-                sym = ROLE_SYMBOLS.get(u_role, "○")
+                sym = ROLE_SYMBOLS.get(u_role, "👻")
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-                txt += f"{place} {sym} <b>{name_link}</b> - +{v} 🏆\n"
+                txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
 
             if not results:
                 txt += "📭 Пока нет данных для расчета."
 
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
-        except:
+
+        except Exception as e:
+            back = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack())]])
             await callback.message.edit_text("❌ Ошибка вычислений", reply_markup=back,
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
 
@@ -588,11 +604,11 @@ async def cmd_moderation(message: Message, bot: Bot):
     admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
     t_role = await get_user_role_by_id(target_id)
-    a_sym = ROLE_SYMBOLS.get(a_role, "○")
-    t_sym = ROLE_SYMBOLS.get(t_role, "○")
+    a_sym = ROLE_SYMBOLS.get(a_role, "👻")
+    t_sym = ROLE_SYMBOLS.get(t_role, "👻")
 
-    fmt_admin = f"{a_sym} <b>{admin_name}</b>"
-    fmt_target = f"{t_sym} <b>{target_name}</b>"
+    fmt_admin = f"{a_sym} {admin_name}"
+    fmt_target = f"{t_sym} {target_name}"
 
     try:
         if cmd in ["мут", "mute"]:
@@ -685,10 +701,10 @@ async def sticker_anti_spam(message: Message, bot: Bot):
 
             u_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             role = await get_user_role_by_id(user_id)
-            sym = ROLE_SYMBOLS.get(role, "○")
+            sym = ROLE_SYMBOLS.get(role, "👻")
 
             msg = await message.answer(
-                f"🔇 Пользователь {sym} <b>{u_name}</b> лишен права голоса на 1 минуту.\n📝 Причина: Флуд стикерами.",
+                f"🔇 Пользователь {sym} {u_name} лишен права голоса на 1 минуту.\n📝 Причина: Флуд стикерами.",
                 link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(msg, 60))
         except:
