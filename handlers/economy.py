@@ -11,16 +11,11 @@ from utils.database import get_eco_data, update_balance, set_eco_data
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-# Глобальный словарь для ожидания ставки из меню казино
-WAITING_BETS = {}
-
-
 def get_class_bonus(bot_class: str):
     if bot_class == "Махим": return {"work_cd": 4, "luck": 0.10, "rob_mult": 1.0}
     if bot_class == "Спырту": return {"work_cd": 3, "luck": -0.05, "rob_mult": 1.5}
     if bot_class == "Ванёк": return {"work_cd": 5, "luck": 0.20, "rob_mult": 1.0}
     return {"work_cd": 4, "luck": 0.0, "rob_mult": 1.0}
-
 
 @router.message(F.text.lower().in_({"работа", "ворк"}))
 async def cmd_work(message: Message):
@@ -30,7 +25,7 @@ async def cmd_work(message: Message):
 
     bonuses = get_class_bonus(eco["bot_class"])
     cd_hours = bonuses["work_cd"]
-
+    
     now = datetime.now()
     if eco["last_work"]:
         last_work = datetime.fromisoformat(eco["last_work"])
@@ -47,7 +42,6 @@ async def cmd_work(message: Message):
     await set_eco_data(user_id, "last_work", now.isoformat())
     await message.answer(f"✅ <b>УСПЕШНО!</b>\n🔥 Вы поработали и заработали <b>{reward}</b> ₣!", parse_mode="HTML")
 
-
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
 async def cmd_pay(message: Message, bot: Bot):
     parts = message.text.split()
@@ -62,8 +56,7 @@ async def cmd_pay(message: Message, bot: Bot):
         idx += 1
         db_path = "/app/data/bot_data_v3.db"
         async with aiosqlite.connect(db_path) as db:
-            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
-                                  (target_username,)) as cursor:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE", (target_username,)) as cursor:
                 row = await cursor.fetchone()
                 if row:
                     target_id = row[0]
@@ -85,7 +78,7 @@ async def cmd_pay(message: Message, bot: Bot):
     if amount <= 0: return
 
     sender_id = message.from_user.id
-    if sender_id == target_id:
+    if sender_id == target_id: 
         await message.answer("❌ Нельзя переводить Феники самому себе.")
         return
 
@@ -101,353 +94,372 @@ async def cmd_pay(message: Message, bot: Bot):
 
     await update_balance(sender_id, -amount)
     await update_balance(target_id, amount)
-    await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣",
-                         parse_mode="HTML")
+    await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣", parse_mode="HTML")
 
 
 # ==========================================
-# 🎰 ГЛАВНОЕ МЕНЮ КАЗИНО И ИГР
+# ИГРЫ: КАЗИНО ХАБ И TG ЭМОДЗИ
 # ==========================================
 
-@router.message(F.text.lower().in_({"игра", "игры", "казик", "казино", "games", "casino"}))
-async def cmd_casino(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🃏 Блэкджек", callback_data="cas_bj"),
-         InlineKeyboardButton(text="💣 Сапёр", callback_data="cas_ms")],
-        [InlineKeyboardButton(text="🎰 Слоты", callback_data="cas_tg_🎰"),
-         InlineKeyboardButton(text="🎲 Кости", callback_data="cas_tg_🎲")],
-        [InlineKeyboardButton(text="🎯 Дартс", callback_data="cas_tg_🎯"),
-         InlineKeyboardButton(text="🏀 Баскетбол", callback_data="cas_tg_🏀")],
-        [InlineKeyboardButton(text="⚽️ Футбол", callback_data="cas_tg_⚽"),
-         InlineKeyboardButton(text="🎳 Боулинг", callback_data="cas_tg_🎳")],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data="cas_close")]
+class CasinoCb(CallbackData, prefix="cas"):
+    act: str
+    game: str
+    val: str = "0"
+
+def kb_casino_main(user_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🃏 Блэкджек (21)", callback_data=CasinoCb(act="bet", game="bj").pack()),
+         InlineKeyboardButton(text="💣 Сапёр", callback_data=CasinoCb(act="saper_route", game="saper").pack())],
+        [InlineKeyboardButton(text="🎰 Слоты", callback_data=CasinoCb(act="bet", game="slot").pack()),
+         InlineKeyboardButton(text="🎲 Кости", callback_data=CasinoCb(act="bet", game="dice").pack())],
+        [InlineKeyboardButton(text="🎯 Дартс", callback_data=CasinoCb(act="bet", game="darts").pack()),
+         InlineKeyboardButton(text="🎳 Боулинг", callback_data=CasinoCb(act="bet", game="bowl").pack())],
+        [InlineKeyboardButton(text="⚽️ Футбол", callback_data=CasinoCb(act="bet", game="fball").pack()),
+         InlineKeyboardButton(text="🏀 Баскетбол", callback_data=CasinoCb(act="bet", game="bball").pack())],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data=CasinoCb(act="close", game="none").pack())]
     ])
-    await message.answer("🎰 <b>КАЗИНО PHOENIX</b>\n\nВыберите игру, чтобы испытать удачу:", reply_markup=kb,
-                         parse_mode="HTML")
 
+def kb_casino_bet(user_id: int, game: str):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💵 10", callback_data=CasinoCb(act="play", game=game, val="10").pack()),
+         InlineKeyboardButton(text="💵 50", callback_data=CasinoCb(act="play", game=game, val="50").pack()),
+         InlineKeyboardButton(text="💵 100", callback_data=CasinoCb(act="play", game=game, val="100").pack())],
+        [InlineKeyboardButton(text="💸 500", callback_data=CasinoCb(act="play", game=game, val="500").pack()),
+         InlineKeyboardButton(text="💸 1000", callback_data=CasinoCb(act="play", game=game, val="1000").pack()),
+         InlineKeyboardButton(text="🏦 ВА-БАНК", callback_data=CasinoCb(act="play", game=game, val="all").pack())],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=CasinoCb(act="menu", game="none").pack())]
+    ])
 
-@router.callback_query(F.data.startswith("cas_"))
-async def cb_casino_menu(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    action = callback.data.replace("cas_", "")
-
-    if action == "close":
-        await callback.message.delete()
-        if user_id in WAITING_BETS:
-            del WAITING_BETS[user_id]
-        return
-
-    if action == "cancel":
-        if user_id in WAITING_BETS:
-            del WAITING_BETS[user_id]
-        await callback.message.edit_text("❌ Ввод ставки отменен.")
-        return
-
-    if action == "ms":
-        # Сапер имеет свое меню ставок, запускаем его напрямую
-        from economy import kb_saper_setup_bet
-        await callback.message.edit_text("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
-                                         reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
-        return
-
-    game_name = ""
-    if action == "bj":
-        WAITING_BETS[user_id] = {"game": "bj"}
-        game_name = "🃏 Блэкджек"
-    elif action.startswith("tg_"):
-        emoji = action.split("_")[1]
-        WAITING_BETS[user_id] = {"game": "tg", "emoji": emoji}
-        game_name = f"{emoji} Игру на удачу"
-
-    await callback.message.edit_text(
-        f"Введи в чат сумму ставки для игры в <b>{game_name}</b> (или напиши 'все'):\n\n"
-        f"<i>Минимальная ставка — 10 ₣</i>",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cas_cancel")]]),
-        parse_mode="HTML"
-    )
-
-
-# Универсальный фильтр для перехвата ставки в чате
-class IsWaitingBetFilter:
-    async def __call__(self, message: Message) -> bool:
-        if not message.text: return False
-        text = message.text.lower().strip()
-        return message.from_user.id in WAITING_BETS and (text.isdigit() or text in ["all", "все", "всё"])
-
-
-@router.message(IsWaitingBetFilter())
-async def process_casino_bet(message: Message, bot: Bot):
+@router.message(lambda msg: msg.text and msg.text.lower() in ["казик", "казино", "игра", "игры", "casino", "games"])
+async def cmd_casino_main(message: Message):
     user_id = message.from_user.id
-    state = WAITING_BETS.pop(user_id)
-    bet_str = message.text.lower().strip()
-
     eco = await get_eco_data(user_id)
     if not eco:
         return await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+    
+    await message.answer(
+        f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n"
+        f"💰 Твой баланс: <b>{eco['balance']}</b> ₣\n\n"
+        f"Выбери игру, чтобы испытать удачу:",
+        reply_markup=kb_casino_main(user_id),
+        parse_mode="HTML"
+    )
 
-    bal = eco["balance"]
-    bet = bal if bet_str in ["all", "все", "всё"] else int(bet_str)
+@router.callback_query(CasinoCb.filter())
+async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb):
+    user_id = callback.from_user.id
+    act = callback_data.act
+    game = callback_data.game
+    val = callback_data.val
 
-    if bet < 10:
-        return await message.answer("❌ Минимальная ставка — 10 ₣.")
-    if bal < bet:
-        return await message.answer(f"❌ Недостаточно средств. Твой баланс: {bal} ₣.")
+    if act == "close":
+        await callback.message.delete()
+        return
 
-    # Списываем ставку сразу для всех игр кроме Сапера (он списывает внутри себя)
-    await update_balance(user_id, -bet)
-
-    if state["game"] == "bj":
-        await start_blackjack(message, user_id, bet)
-    elif state["game"] == "tg":
-        await start_tg_game(message, user_id, bet, state["emoji"])
-
-
-# ==========================================
-# 🎲 ИГРЫ СО СТИКЕРАМИ TELEGRAM
-# ==========================================
-
-async def start_tg_game(message: Message, user_id: int, bet: int, emoji: str):
-    # Отправляем кубик/дартс/слот
-    dice_msg = await message.answer_dice(emoji=emoji)
-    await asyncio.sleep(4)  # Ждем пока проиграется анимация
-
-    val = dice_msg.dice.value
-    mult = 0.0
-    game_title = ""
-
-    if emoji == "🎯":
-        game_title = "ДАРТС"
-        if val == 6:
-            mult = 3.0  # В яблочко
-        elif val in [4, 5]:
-            mult = 1.5  # Близко к центру
-    elif emoji == "🏀":
-        game_title = "БАСКЕТБОЛ"
-        if val in [4, 5]: mult = 2.0  # Попал в кольцо
-    elif emoji == "⚽":
-        game_title = "ФУТБОЛ"
-        if val in [3, 4, 5]: mult = 1.5  # Гол
-    elif emoji == "🎳":
-        game_title = "БОУЛИНГ"
-        if val == 6:
-            mult = 3.0  # Страйк
-        elif val == 5:
-            mult = 1.5  # Почти страйк
-    elif emoji == "🎰":
-        game_title = "СЛОТЫ"
-        if val == 64:
-            mult = 50.0  # Три семерки
-        elif val in [1, 22, 43]:
-            mult = 10.0  # Три одинаковых (bar, слива, лимон)
-        elif val in [44, 2, 23, 63, 21, 42]:
-            mult = 2.0  # Две одинаковых
-    elif emoji == "🎲":
-        game_title = "КОСТИ"
-        if val in [5, 6]: mult = 2.5  # Выпало 5 или 6
-
-    if mult > 0:
-        win = int(bet * mult)
-        await update_balance(user_id, win)
-        await message.reply(
-            f"{emoji} <b>{game_title}</b>\n\n"
-            f"Значение кубика: <b>{val}</b>\n"
-            f"🎉 <b>ПОБЕДА!</b> Выигрыш: <b>{win}</b> ₣ (x{mult})",
+    if act == "menu":
+        eco = await get_eco_data(user_id)
+        await callback.message.edit_text(
+            f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n"
+            f"💰 Твой баланс: <b>{eco['balance']}</b> ₣\n\n"
+            f"Выбери игру, чтобы испытать удачу:",
+            reply_markup=kb_casino_main(user_id),
             parse_mode="HTML"
         )
-    else:
-        await message.reply(
-            f"{emoji} <b>{game_title}</b>\n\n"
-            f"Значение кубика: <b>{val}</b>\n"
-            f"😔 <b>ПРОИГРЫШ!</b> Потеряно: <b>{bet}</b> ₣",
+        return
+
+    if act == "saper_route":
+        await callback.message.edit_text("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):", reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
+        return
+
+    if act == "bet":
+        game_names = {"bj": "🃏 Блэкджек", "slot": "🎰 Слоты", "dice": "🎲 Кости", "darts": "🎯 Дартс", "bowl": "🎳 Боулинг", "fball": "⚽️ Футбол", "bball": "🏀 Баскетбол"}
+        await callback.message.edit_text(
+            f"{game_names[game]}\n\nВыберите размер ставки:",
+            reply_markup=kb_casino_bet(user_id, game),
             parse_mode="HTML"
         )
+        return
+
+    # Специальный перехватчик для Костей (выбор числа)
+    if act == "play" and game == "dice" and "_" not in val:
+        eco = await get_eco_data(user_id)
+        bal = eco['balance']
+        bet = bal if val == "all" else int(val)
+        
+        if bet < 10: return await callback.answer("Минимальная ставка 10 ₣!", show_alert=True)
+        if bal < bet: return await callback.answer("Недостаточно средств!", show_alert=True)
+        
+        kb_dice_guess = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="1️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_1").pack()),
+             InlineKeyboardButton(text="2️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_2").pack()),
+             InlineKeyboardButton(text="3️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_3").pack())],
+            [InlineKeyboardButton(text="4️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_4").pack()),
+             InlineKeyboardButton(text="5️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_5").pack()),
+             InlineKeyboardButton(text="6️⃣", callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_6").pack())],
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=CasinoCb(act="bet", game="dice").pack())]
+        ])
+        await callback.message.edit_text(f"🎲 Ставка: <b>{bet} ₣</b>\n\nНа какое число ставишь? (Угадаешь — заберешь x5!)", reply_markup=kb_dice_guess, parse_mode="HTML")
+        return
+
+    if act == "play":
+        eco = await get_eco_data(user_id)
+        if not eco: return await callback.answer("Ошибка счета!", show_alert=True)
+        
+        bal = eco['balance']
+        
+        # Распаковка ставки для Костей
+        if game == "dice":
+            bet_str, guess_str = val.split("_")
+            bet = int(bet_str)
+            guess = int(guess_str)
+        else:
+            bet = bal if val == "all" else int(val)
+        
+        if bet < 10: return await callback.answer("Минимальная ставка 10 ₣!", show_alert=True)
+        if bal < bet: return await callback.answer("Недостаточно средств!", show_alert=True)
+
+        if game == "bj":
+            await start_blackjack(callback, user_id, bet)
+            return
+
+        # Списание средств ДО броска
+        await update_balance(user_id, -bet)
+        
+        emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}
+        emj = emoji_map[game]
+
+        guess_text = f" Ты ставил на <b>{guess}</b>." if game == "dice" else ""
+        await callback.message.edit_text(f"{emj} Ставка <b>{bet}</b> ₣ принята!{guess_text}\nБросаю...", parse_mode="HTML")
+        dice_msg = await callback.message.answer_dice(emoji=emj)
+        await asyncio.sleep(4.0 if game in ["slot", "bowl", "fball", "bball"] else 3.0)
+
+        val_res = dice_msg.dice.value
+        mult = 0.0
+        msg_result = "Увы, ставка сгорела. 😔"
+
+        if game == "slot":
+            # 64 = 777. 1, 22, 43 = Бары, Лимоны, Виноград.
+            if val_res == 64: mult, msg_result = 10.0, "ДЖЕКПОТ! 777! 🎉 (x10)"
+            elif val_res in [1, 22, 43]: mult, msg_result = 5.0, "Три в ряд! Отличный куш! 🍒 (x5)"
+        elif game == "dice":
+            if val_res == guess: mult, msg_result = 5.0, f"Угадал! Выпало {val_res}! 🎲🎉 (x5)"
+            else: msg_result = f"Мимо. Выпало {val_res}, а ты ставил на {guess}. 😔"
+        elif game in ["darts", "bowl"]:
+            if val_res == 6: mult, msg_result = 3.0, "Прямо в цель! Идеально! 🏆 (x3)"
+        elif game in ["fball", "bball"]:
+            if val_res in [4, 5]: mult, msg_result = 2.0, "ГООООЛ! / Точно в корзину! 🏆 (x2)"
+
+        win_amount = int(bet * mult)
+        if win_amount > 0:
+            await update_balance(user_id, win_amount)
+        
+        res_text = (
+            f"{emj} <b>РЕЗУЛЬТАТ: {val_res}</b>\n\n"
+            f"{msg_result}\n"
+            f"💸 Выигрыш: <b>{win_amount} ₣</b>\n"
+        )
+        
+        # Для костей возвращаем кнопку "Повторить" с тем же числом
+        retry_val = str(bet) if game != "dice" else val
+        kb_retry = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Повторить ставку", callback_data=CasinoCb(act="play", game=game, val=retry_val).pack())],
+            [InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())]
+        ])
+        await callback.message.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
 
 
 # ==========================================
-# 🃏 БЛЭКДЖЕК (21)
+# ИГРА: БЛЭКДЖЕК (21)
 # ==========================================
+
+BJ_GAMES = {}
 
 class BjCb(CallbackData, prefix="bj"):
     act: str
 
-
-BJ_GAMES = {}
-
-
-def get_card_val(c):
-    v = c.split()[0]
-    if v in ["J", "Q", "K"]: return 10
-    if v == "A": return 11
-    return int(v)
-
-
-def get_hand_val(hand):
-    total = sum(get_card_val(c) for c in hand)
-    aces = sum(1 for c in hand if c.split()[0] == "A")
-    while total > 21 and aces > 0:
-        total -= 10
-        aces -= 1
-    return total
-
-
-def generate_deck():
-    deck = [f"{v} {s}" for s in ["♠️", "♥️", "♦️", "♣️"] for v in
-            ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]]
+def get_deck():
+    suits = ['♠️', '♥️', '♦️', '♣️']
+    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+    deck = [f"{rank}{suit}" for suit in suits for rank in ranks]
     random.shuffle(deck)
     return deck
 
+def calc_hand(hand):
+    val = 0
+    aces = 0
+    for card in hand:
+        r = card[:-2]
+        if r in ['J', 'Q', 'K']: val += 10
+        elif r == 'A': 
+            val += 11
+            aces += 1
+        else: val += int(r)
+    while val > 21 and aces > 0:
+        val -= 10
+        aces -= 1
+    return val
 
-def kb_bj_play(can_double=False):
-    kb = [
-        [InlineKeyboardButton(text="👊 Ещё", callback_data=BjCb(act="hit").pack()),
-         InlineKeyboardButton(text="✋ Хватит", callback_data=BjCb(act="stand").pack())]
-    ]
-    bottom_row = []
-    if can_double:
-        bottom_row.append(InlineKeyboardButton(text="💰 Удвоить", callback_data=BjCb(act="double").pack()))
-    bottom_row.append(InlineKeyboardButton(text="🏳️ Сдаться", callback_data=BjCb(act="surrender").pack()))
-    kb.append(bottom_row)
-    return InlineKeyboardMarkup(inline_keyboard=kb)
-
-
-def render_bj_text(game, hide_dealer=True, result_msg=None):
-    p_hand = " ".join(game['player'])
-    p_val = get_hand_val(game['player'])
-
-    if hide_dealer:
-        d_hand = f"{game['dealer'][0]} 🂠"
-        d_val = "?"
-    else:
-        d_hand = " ".join(game['dealer'])
-        d_val = get_hand_val(game['dealer'])
-
-    text = (
-        f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
-        f"🏦 Дилер: {d_hand} (Очки: {d_val})\n"
-        f"👤 Игрок: {p_hand} (Очки: {p_val})\n\n"
-        f"💸 Ставка: <b>{game['bet']}</b> ₣"
-    )
-    if result_msg:
-        text += f"\n\n{result_msg}"
-    return text
-
-
-async def start_blackjack(message: Message, user_id: int, bet: int):
-    deck = generate_deck()
+async def start_blackjack(callback: CallbackQuery, user_id: int, bet: int):
+    await update_balance(user_id, -bet)
+    
+    deck = get_deck()
     player_hand = [deck.pop(), deck.pop()]
     dealer_hand = [deck.pop(), deck.pop()]
-
-    eco = await get_eco_data(user_id)
-    can_double = eco["balance"] >= bet
-
+    
     BJ_GAMES[user_id] = {
         "bet": bet,
         "deck": deck,
-        "player": player_hand,
-        "dealer": dealer_hand
+        "player_hand": player_hand,
+        "dealer_hand": dealer_hand
     }
+    
+    pval = calc_hand(player_hand)
+    if pval == 21:
+        await finish_blackjack(callback, user_id, "bj")
+        return
+        
+    await render_blackjack(callback.message, user_id)
 
-    p_val = get_hand_val(player_hand)
-    if p_val == 21:
-        await resolve_blackjack(message, user_id, "blackjack")
-    else:
-        await message.answer(render_bj_text(BJ_GAMES[user_id], hide_dealer=True), reply_markup=kb_bj_play(can_double),
-                             parse_mode="HTML")
-
-
-async def resolve_blackjack(message_or_query, user_id: int, reason: str):
-    game = BJ_GAMES.pop(user_id)
-    bet = game["bet"]
-    p_val = get_hand_val(game["player"])
-
-    if reason not in ["surrender", "bust", "blackjack"]:
-        # Дилер добирает карты
-        while get_hand_val(game["dealer"]) < 17:
-            game["dealer"].append(game["deck"].pop())
-
-    d_val = get_hand_val(game["dealer"])
-    win_amount = 0
-    res_msg = ""
-
-    if reason == "surrender":
-        win_amount = bet // 2
-        res_msg = f"🏳️ <b>Вы сдались.</b> Возвращено: {win_amount} ₣ (Половина ставки)."
-    elif reason == "bust":
-        res_msg = f"💥 <b>Перебор!</b> Вы проиграли {bet} ₣."
-    elif reason == "blackjack":
-        win_amount = int(bet + (bet * 1.5))
-        res_msg = f"🎉 <b>БЛЭКДЖЕК!</b> Выплата 3 к 2! Выигрыш: {win_amount} ₣."
-    elif d_val > 21:
-        win_amount = bet * 2
-        res_msg = f"💥 <b>Дилер перебрал!</b> Вы выиграли {win_amount} ₣."
-    elif p_val > d_val:
-        win_amount = bet * 2
-        res_msg = f"🎉 <b>Вы выиграли!</b> Выплата: {win_amount} ₣."
-    elif p_val == d_val:
-        win_amount = bet
-        res_msg = f"🤝 <b>Ничья (Push).</b> Ставка {bet} ₣ возвращена."
-    else:
-        res_msg = f"😔 <b>Вы проиграли.</b> Дилер победил. Потеряно: {bet} ₣."
-
-    if win_amount > 0:
-        await update_balance(user_id, win_amount)
-
-    final_text = render_bj_text(game, hide_dealer=False, result_msg=res_msg)
-
-    if isinstance(message_or_query, CallbackQuery):
-        await message_or_query.message.edit_text(final_text, parse_mode="HTML")
-    else:
-        await message_or_query.answer(final_text, parse_mode="HTML")
-
+async def render_blackjack(message: Message, user_id: int):
+    game = BJ_GAMES.get(user_id)
+    if not game: return
+    
+    p_hand = ", ".join(game["player_hand"])
+    d_card = game["dealer_hand"][0]
+    pval = calc_hand(game["player_hand"])
+    
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+        f"💸 Ставка: <b>{game['bet']} ₣</b>\n\n"
+        f"🏦 Дилер: {d_card}, 🂠 (?)\n"
+        f"👤 Ты: {p_hand} <b>({pval})</b>\n\n"
+        f"Твой ход:"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👇 Ещё карту (Hit)", callback_data=BjCb(act="hit").pack()),
+         InlineKeyboardButton(text="✋ Хватит (Stand)", callback_data=BjCb(act="stand").pack())]
+    ])
+    
+    if isinstance(message, Message):
+        await message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
 @router.callback_query(BjCb.filter())
-async def cb_blackjack(callback: CallbackQuery, callback_data: BjCb):
+async def cb_bj_handler(callback: CallbackQuery, callback_data: BjCb):
     user_id = callback.from_user.id
     if user_id not in BJ_GAMES:
-        return await callback.answer("Игра уже завершена или не ваша!", show_alert=True)
-
+        return await callback.answer("Игра устарела или уже закончена!", show_alert=True)
+        
     game = BJ_GAMES[user_id]
     act = callback_data.act
-
-    if act == "surrender":
-        await resolve_blackjack(callback, user_id, "surrender")
+    
+    if act == "hit":
+        game["player_hand"].append(game["deck"].pop())
+        pval = calc_hand(game["player_hand"])
+        if pval > 21:
+            await finish_blackjack(callback, user_id, "bust")
+        elif pval == 21:
+            await finish_blackjack(callback, user_id, "stand")
+        else:
+            await render_blackjack(callback.message, user_id)
+            
     elif act == "stand":
-        await resolve_blackjack(callback, user_id, "stand")
-    elif act == "double":
-        eco = await get_eco_data(user_id)
-        if eco["balance"] < game["bet"]:
-            return await callback.answer("Недостаточно средств для удвоения!", show_alert=True)
-        # Списываем еще одну ставку
-        await update_balance(user_id, -game["bet"])
-        game["bet"] *= 2
-        game["player"].append(game["deck"].pop())
-        if get_hand_val(game["player"]) > 21:
-            await resolve_blackjack(callback, user_id, "bust")
+        await finish_blackjack(callback, user_id, "stand")
+
+async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str):
+    game = BJ_GAMES.pop(user_id)
+    bet = game["bet"]
+    p_hand = game["player_hand"]
+    d_hand = game["dealer_hand"]
+    deck = game["deck"]
+    
+    pval = calc_hand(p_hand)
+    
+    if reason == "bust":
+        mult = 0.0
+        res_msg = "💥 Перебор! Ты проиграл."
+    elif reason == "bj":
+        mult = 2.5
+        res_msg = "🎉 БЛЭКДЖЕК с раздачи! Чистая победа! (x2.5)"
+    else:
+        dval = calc_hand(d_hand)
+        while dval < 17:
+            d_hand.append(deck.pop())
+            dval = calc_hand(d_hand)
+            
+        if dval > 21:
+            mult = 2.0
+            res_msg = "🔥 Дилер перебрал! Ты выиграл! (x2)"
+        elif pval > dval:
+            mult = 2.0
+            res_msg = "🏆 Ты победил дилера! (x2)"
+        elif pval == dval:
+            mult = 1.0
+            res_msg = "🤝 Ничья! Ставка возвращена."
         else:
-            await resolve_blackjack(callback, user_id, "stand")
-    elif act == "hit":
-        game["player"].append(game["deck"].pop())
-        if get_hand_val(game["player"]) > 21:
-            await resolve_blackjack(callback, user_id, "bust")
-        else:
-            # Убираем кнопку удвоения и сдачи после первой взятой карты
-            await callback.message.edit_text(render_bj_text(game, hide_dealer=True),
-                                             reply_markup=kb_bj_play(can_double=False), parse_mode="HTML")
+            mult = 0.0
+            res_msg = "😔 Дилер оказался сильнее. Ставка сгорела."
+            
+    win_amount = int(bet * mult)
+    if win_amount > 0:
+        await update_balance(user_id, win_amount)
+    
+    p_str = ", ".join(p_hand)
+    d_str = ", ".join(d_hand)
+    dval = calc_hand(d_hand)
+    
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК: ИТОГИ</b>\n\n"
+        f"🏦 Дилер: {d_str} <b>({dval})</b>\n"
+        f"👤 Ты: {p_str} <b>({pval})</b>\n\n"
+        f"{res_msg}\n"
+        f"💸 Выигрыш: <b>{win_amount} ₣</b>"
+    )
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Повторить", callback_data=CasinoCb(act="play", game="bj", val=str(bet)).pack())],
+        [InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())]
+    ])
+    
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
+@router.message(lambda msg: msg.text and msg.text.lower().startswith(("блекджек", "блэкджек", "21", "очко", "двадцать одно")))
+async def cmd_bj_direct(message: Message):
+    user_id = message.from_user.id
+    eco = await get_eco_data(user_id)
+    if not eco: return
+    
+    parts = message.text.lower().split()
+    if len(parts) > 1 and (parts[1].isdigit() or parts[1] == "all"):
+        val = parts[1]
+        bal = eco['balance']
+        bet = bal if val == "all" else int(val)
+        
+        if bet < 10: return await message.answer("Минимальная ставка 10 ₣!")
+        if bal < bet: return await message.answer("Недостаточно средств!")
+        
+        class FakeCb:
+            def __init__(self, msg):
+                self.message = msg
+                self.from_user = msg.from_user
+        
+        sent_msg = await message.answer("Раздаю карты...")
+        await start_blackjack(FakeCb(sent_msg), user_id, bet)
+    else:
+        await message.answer("🃏 <b>БЛЭКДЖЕК</b>\n\nВыберите размер ставки:", reply_markup=kb_casino_bet(user_id, "bj"), parse_mode="HTML")
 
 
 # ==========================================
-# 💣 САПЕР (УЖЕ БЫЛ В КОДЕ, БЕЗ ИЗМЕНЕНИЙ)
+# ИГРА: САПЕР
 # ==========================================
 
 class SaperSetupCb(CallbackData, prefix="spset"):
     act: str
     val: str
 
-
 class SaperCb(CallbackData, prefix="sap"):
     act: str
     idx: int
-
 
 SAPER_GAMES = {}
 
@@ -457,7 +469,6 @@ SAPER_DIFFS = {
     "hard": {"name": "🔴 Трудный", "mines": 20, "mult_step": 1.5, "safe": 5}
 }
 
-
 def kb_saper_setup_bet(user_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💵 50", callback_data=SaperSetupCb(act="bet", val="50").pack()),
@@ -465,26 +476,21 @@ def kb_saper_setup_bet(user_id: int):
         [InlineKeyboardButton(text="💸 500", callback_data=SaperSetupCb(act="bet", val="500").pack()),
          InlineKeyboardButton(text="💸 1000", callback_data=SaperSetupCb(act="bet", val="1000").pack())],
         [InlineKeyboardButton(text="🏦 ВА-БАНК", callback_data=SaperSetupCb(act="bet", val="all").pack())],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=SaperSetupCb(act="cancel", val="0").pack())]
+        [InlineKeyboardButton(text="⬅️ В Казино", callback_data=CasinoCb(act="menu", game="none").pack())]
     ])
-
 
 def kb_saper_setup_diff(user_id: int, bet: str):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🟢 Легкий (5 мин)",
-                              callback_data=SaperSetupCb(act=f"start_{bet}", val="easy").pack())],
-        [InlineKeyboardButton(text="🟡 Средний (12 мин)",
-                              callback_data=SaperSetupCb(act=f"start_{bet}", val="medium").pack())],
-        [InlineKeyboardButton(text="🔴 Трудный (20 мин)",
-                              callback_data=SaperSetupCb(act=f"start_{bet}", val="hard").pack())],
+        [InlineKeyboardButton(text="🟢 Легкий (5 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="easy").pack())],
+        [InlineKeyboardButton(text="🟡 Средний (12 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="medium").pack())],
+        [InlineKeyboardButton(text="🔴 Трудный (20 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="hard").pack())],
         [InlineKeyboardButton(text="❌ Отмена", callback_data=SaperSetupCb(act="cancel", val="0").pack())]
     ])
-
 
 def kb_saper_game(user_id: int, game_over=False):
     game = SAPER_GAMES.get(user_id)
     if not game: return None
-
+    
     kb = []
     grid = game["grid"]
     clicked = game["clicked"]
@@ -507,17 +513,15 @@ def kb_saper_game(user_id: int, game_over=False):
 
     if not game_over and len(clicked) > 0:
         current_win = int(game["bet"] * game["mult"])
-        kb.append([InlineKeyboardButton(text=f"🛑 Забрать {current_win} ₣",
-                                        callback_data=SaperCb(act="cashout", idx=-1).pack())])
+        kb.append([InlineKeyboardButton(text=f"🛑 Забрать {current_win} ₣", callback_data=SaperCb(act="cashout", idx=-1).pack())])
 
     return InlineKeyboardMarkup(inline_keyboard=kb)
-
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("сапер", "saper", "сапёр")))
 async def cmd_saper(message: Message):
     user_id = message.from_user.id
     parts = message.text.lower().split()[1:]
-
+    
     bet_str = None
     diff = None
 
@@ -537,21 +541,18 @@ async def cmd_saper(message: Message):
                     break
 
     if not bet_str:
-        await message.answer("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
-                             reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
+        await message.answer("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):", reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
         return
-
+        
     if not diff:
-        await message.answer(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{bet_str}</b> ₣\nВыберите сложность:",
-                             reply_markup=kb_saper_setup_diff(user_id, bet_str), parse_mode="HTML")
+        await message.answer(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{bet_str}</b> ₣\nВыберите сложность:", reply_markup=kb_saper_setup_diff(user_id, bet_str), parse_mode="HTML")
         return
 
     await start_saper_game(message.chat.id, user_id, message.from_user.full_name, bet_str, diff, bot_msg=message)
 
-
 async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: str, diff: str, bot_msg=None):
     eco = await get_eco_data(user_id)
-
+    
     async def send_error(txt):
         if isinstance(bot_msg, Message):
             await bot_msg.answer(txt)
@@ -608,7 +609,6 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
     elif isinstance(bot_msg, CallbackQuery):
         await bot_msg.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
 
-
 @router.callback_query(SaperSetupCb.filter())
 async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb):
     user_id = callback.from_user.id
@@ -616,19 +616,16 @@ async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb):
     val = callback_data.val
 
     if act == "cancel":
-        await callback.message.edit_text("❌ Игра отменена.")
+        await callback.message.delete()
         return
 
     if act == "bet":
-        await callback.message.edit_text(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{val}</b> ₣\nВыберите сложность:",
-                                         reply_markup=kb_saper_setup_diff(user_id, val), parse_mode="HTML")
-
+        await callback.message.edit_text(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{val}</b> ₣\nВыберите сложность:", reply_markup=kb_saper_setup_diff(user_id, val), parse_mode="HTML")
+    
     elif act.startswith("start_"):
         bet_str = act.split("_")[1]
         diff = val
-        await start_saper_game(callback.message.chat.id, user_id, callback.from_user.full_name, bet_str, diff,
-                               bot_msg=callback)
-
+        await start_saper_game(callback.message.chat.id, user_id, callback.from_user.full_name, bet_str, diff, bot_msg=callback)
 
 @router.callback_query(SaperCb.filter())
 async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
@@ -649,7 +646,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
     if act == "cashout":
         win_amount = int(game["bet"] * game["mult"])
         await update_balance(user_id, win_amount)
-
+        
         text = (
             f"💰 <b>ДЕНЬГИ СНЯТЫ!</b>\n\n"
             f"👤 Игрок: <b>{game['name']}</b>\n"
@@ -673,14 +670,13 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
                 f"💸 Потеряно: <b>{game['bet']} ₣</b>\n"
                 f"<i>Мина оказалась прямо под ногой...</i>"
             )
-            await callback.message.edit_text(text, reply_markup=kb_saper_game(user_id, game_over=True),
-                                             parse_mode="HTML")
+            await callback.message.edit_text(text, reply_markup=kb_saper_game(user_id, game_over=True), parse_mode="HTML")
             del SAPER_GAMES[user_id]
             return
 
         game["clicked"].append(idx)
         game["mult"] += SAPER_DIFFS[game["diff"]]["mult_step"]
-
+        
         safe_total = SAPER_DIFFS[game["diff"]]["safe"]
         if len(game["clicked"]) == safe_total:
             win_amount = int(game["bet"] * game["mult"])
@@ -691,8 +687,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
                 f"🎉 Все безопасные ячейки найдены!\n"
                 f"🤑 Выигрыш: <b>{win_amount} ₣</b> (x{game['mult']:.1f})"
             )
-            await callback.message.edit_text(text, reply_markup=kb_saper_game(user_id, game_over=True),
-                                             parse_mode="HTML")
+            await callback.message.edit_text(text, reply_markup=kb_saper_game(user_id, game_over=True), parse_mode="HTML")
             del SAPER_GAMES[user_id]
             return
 
