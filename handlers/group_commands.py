@@ -172,8 +172,8 @@ async def cmd_top_trigger(message: Message):
         sent_msg = await message.answer("⏳ Собираю актуальные данные...",
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
-        # Получаем данные участников с детальной статистикой (как в профиле)
-        live_members, err = await get_live_club_detailed_stats(c)
+        # Используем быстрый запрос для топа пушеров (как в кнопках)
+        live_members, err = await get_all_club_members(c)
         if not live_members:
             await sent_msg.edit_text("❌ Ошибка загрузки данных из API.",
                                      link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -185,7 +185,6 @@ async def cmd_top_trigger(message: Message):
         results = []
         for m in live_members:
             tag = m["tag"]
-            # API возвращает моментальные текущие кубки
             live_cups = m.get("trophies", 0)
             baseline = baseline_map.get(tag, live_cups)
             gain = live_cups - baseline
@@ -254,7 +253,7 @@ async def cmd_top_trigger(message: Message):
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
-        members, err = await get_live_club_detailed_stats(c)
+        members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки."
             await sent_msg.edit_text(err_msg, link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -342,14 +341,14 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             txt += "📭 Пока никого нет."
 
         back = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]
         ])
         await callback.message.edit_text(txt, reply_markup=back,
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Собираю актуальные данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
-        members, err = await get_live_club_detailed_stats(c)
+        members, err = await get_all_club_members(c)
         if not members:
             err_msg = f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки."
             await callback.message.edit_text(err_msg, reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -445,10 +444,11 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("⏳ Собираю актуальные данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
 
+        # ИСПРАВЛЕНИЕ: здесь была ошибка с [[[ ]]]
         back = InlineKeyboardMarkup(inline_keyboard=[
-            [[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]])
+            [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
-            live_members, err = await get_live_club_detailed_stats(c)
+            live_members, err = await get_all_club_members(c)
             if not live_members:
                 await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                                  link_preview_options=LinkPreviewOptions(is_disabled=True))
