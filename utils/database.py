@@ -15,8 +15,8 @@ ROLE_SYMBOLS = {
     "Гость": "👻"
 }
 
+
 async def init_db():
-# ... остальной код оставляешь без изменений ...
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("""
                          CREATE TABLE IF NOT EXISTS users
@@ -277,7 +277,8 @@ async def get_top_messages(days=None):
 async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
     if tags_filter is not None and len(tags_filter) == 0: return {}
 
-    logical_today = (datetime.now() - timedelta(hours=4)).date()
+    # День логически начинается ровно в 00:00 (время фотки кубков)
+    logical_today = datetime.now().date()
     td = (logical_today - timedelta(days=days - 1)).isoformat()
 
     query = """
@@ -298,6 +299,12 @@ async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
         async with db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
             return {row[0]: row[1] for row in rows}
+
+
+async def get_top_gain(column: str, days: int, tags_filter: list = None):
+    # Эта функция больше не нужна, так как мы считаем рост напрямую из игры,
+    # но оставляем для совместимости со старыми вызовами.
+    pass
 
 
 async def get_top_absolute(column: str, tags_filter: list = None, use_max: bool = False):
@@ -343,33 +350,23 @@ async def get_tag_to_tg_map():
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
 
 
-async def unlink_user_tag(target_username: str) -> bool:
-    async with aiosqlite.connect(DB_NAME) as db:
-        async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
-                              (target_username,)) as cursor:
-            row = await cursor.fetchone()
-            if not row:
-                return False
-            user_id = row[0]
-            await db.execute("DELETE FROM tg_profiles WHERE user_id = ?", (user_id,))
-            await db.commit()
-            return True
-
-
 async def set_user_role(user_id: int, role: str, status: str):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?",
                          (role, status, user_id))
         await db.commit()
 
+
 async def get_all_users_for_roles():
     async with aiosqlite.connect(DB_NAME) as db:
         query = """
-            SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status, t.full_name 
-            FROM users u 
-            JOIN tg_profiles t ON u.user_id = t.user_id 
-            WHERE u.is_approved = 1
-        """
+                SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status, t.full_name
+                FROM users u
+                         JOIN tg_profiles t ON u.user_id = t.user_id
+                WHERE u.is_approved = 1 \
+                """
         async with db.execute(query) as cursor:
             rows = await cursor.fetchall()
-            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]} for r in rows]
+            return [
+                {"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]}
+                for r in rows]

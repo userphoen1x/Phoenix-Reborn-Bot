@@ -94,6 +94,6 @@ async def check_roles(bot: Bot):
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(collect_daily_stats, 'cron', hour=4, minute=0)
+    scheduler.add_job(collect_daily_stats, 'cron', hour=0, minute=0)
     scheduler.add_job(check_roles, 'interval', minutes=1, args=[bot])
     scheduler.start()

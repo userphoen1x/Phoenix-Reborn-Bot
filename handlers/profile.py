@@ -69,7 +69,7 @@ async def cmd_profile(message: Message):
     if tg_full_name and tg_full_name.startswith("@"):
         name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>"
     else:
-        name_link = f"<a href='tg://user?id={target_id}'>{player_name}</a>"
+        name_link = f"<b>{player_name}</b>"
 
     bs_tag = eco_data.get('bs_tag', '')
     stats = await get_player_stats(bs_tag) if bs_tag else None
@@ -77,7 +77,6 @@ async def cmd_profile(message: Message):
     if stats:
         trophies = stats['trophies']
 
-        # Получаем базовое значение кубков на начало дня
         baseline_map = await get_baseline_trophies(1, [bs_tag])
         baseline = baseline_map.get(bs_tag, trophies)
         gain = trophies - baseline
@@ -96,7 +95,7 @@ async def cmd_profile(message: Message):
 
     text = (
         f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n"
-        f"┌ 📱 Ник: {sym} <b>{name_link}</b>\n"
+        f"┌ 📱 Ник: {sym} {name_link}\n"
         f"├ 📈 За день: {gain_str}\n"
         f"├ 🏆 Общие: {trophies}\n"
         f"├ ⚔️ 3 на 3: {wins3v3}\n"

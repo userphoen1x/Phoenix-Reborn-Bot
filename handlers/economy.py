@@ -433,7 +433,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
         game["clicked"].append(idx)
         game["mult"] += SAPER_DIFFS[game["diff"]]["mult_step"]
 
-        # Проверка на полную победу (все безопасные открыты)
+        # Проверка на полную победу
         safe_total = SAPER_DIFFS[game["diff"]]["safe"]
         if len(game["clicked"]) == safe_total:
             win_amount = int(game["bet"] * game["mult"])
