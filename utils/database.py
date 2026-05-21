@@ -350,6 +350,20 @@ async def get_tag_to_tg_map():
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
 
 
+# ВОТ ЭТА ФУНКЦИЯ ПОТЕРЯЛАСЬ! ВЕРНУЛ НА МЕСТО
+async def unlink_user_tag(target_username: str) -> bool:
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                              (target_username,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                return False
+            user_id = row[0]
+            await db.execute("DELETE FROM tg_profiles WHERE user_id = ?", (user_id,))
+            await db.commit()
+            return True
+
+
 async def set_user_role(user_id: int, role: str, status: str):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("UPDATE tg_profiles SET game_role = ?, role_status = ? WHERE user_id = ?",
