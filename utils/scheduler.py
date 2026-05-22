@@ -10,7 +10,7 @@ from utils.database import save_snapshot, get_all_users_for_roles, set_user_role
 
 
 async def collect_daily_stats():
-    logging.info("START SCAN")
+    logging.info("START DAILY SNAPSHOT RESET (4:00 MSK)")
     members, _ = await get_all_club_members()
     today = date.today().isoformat()
     for m in members:
@@ -30,7 +30,7 @@ async def collect_daily_stats():
                 rank_h=0
             )
         await asyncio.sleep(0.05)
-    logging.info("END SCAN")
+    logging.info("END DAILY SNAPSHOT RESET")
 
 
 async def check_roles(bot: Bot):
@@ -94,6 +94,7 @@ async def check_roles(bot: Bot):
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    scheduler.add_job(collect_daily_stats, 'cron', hour=0, minute=0)
+    # Сброс и снимок выполняются ровно в 4:00 по московскому времени
+    scheduler.add_job(collect_daily_stats, 'cron', hour=4, minute=0)
     scheduler.add_job(check_roles, 'interval', minutes=1, args=[bot])
     scheduler.start()
