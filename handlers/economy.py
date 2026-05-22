@@ -11,12 +11,50 @@ from utils.database import get_eco_data, update_balance, set_eco_data
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
+LAST_GAME_MSGS = {}
+
+
+async def delete_later(message: Message, delay: int = 10800):
+    """Автоматически удаляет сообщение через заданное время (по умолчанию 3 часа)"""
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except:
+        pass
+
+
+async def cleanup_old_game(bot: Bot, chat_id: int, user_id: int):
+    """Удаляет предыдущую партию игр пользователя, чтобы не засорять чат"""
+    if user_id in LAST_GAME_MSGS:
+        for mid in LAST_GAME_MSGS[user_id]:
+            try:
+                await bot.delete_message(chat_id, mid)
+            except:
+                pass
+        del LAST_GAME_MSGS[user_id]
+
 
 def get_class_bonus(bot_class: str):
     if bot_class == "Махим": return {"work_cd": 4, "luck": 0.10, "rob_mult": 1.0}
     if bot_class == "Спырту": return {"work_cd": 3, "luck": -0.05, "rob_mult": 1.5}
     if bot_class == "Ванёк": return {"work_cd": 5, "luck": 0.20, "rob_mult": 1.0}
     return {"work_cd": 4, "luck": 0.0, "rob_mult": 1.0}
+
+
+@router.message(
+    lambda msg: msg.text and msg.text.lower() in ["баланс", "кошелек", "кошелёк", "счет", "счёт", "/balance",
+                                                  "balance"])
+async def cmd_balance(message: Message):
+    user_id = message.from_user.id
+    eco = await get_eco_data(user_id)
+    if not eco:
+        sent_msg = await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+        asyncio.create_task(delete_later(sent_msg, 60))
+        return
+
+    sent_msg = await message.answer(f"💰 Ваш баланс: <b>{eco['balance']}</b> ₣", parse_mode="HTML")
+    asyncio.create_task(delete_later(sent_msg))
+    asyncio.create_task(delete_later(message))  # Автоматически подчищаем и команду юзера
 
 
 @router.message(F.text.lower().in_({"работа", "ворк"}))
@@ -36,13 +74,17 @@ async def cmd_work(message: Message):
             rem = timedelta(hours=cd_hours) - diff
             mm, ss = divmod(int(rem.total_seconds()), 60)
             hh, mm = divmod(mm, 60)
-            await message.answer(f"⏳ Ожидание... Вы сможете работать через <b>{hh}ч {mm}м</b>.", parse_mode="HTML")
+            sent_msg = await message.answer(f"⏳ Ожидание... Вы сможете работать через <b>{hh}ч {mm}м</b>.",
+                                            parse_mode="HTML")
+            asyncio.create_task(delete_later(sent_msg))
             return
 
     reward = random.randint(50, 150)
     await update_balance(user_id, reward)
     await set_eco_data(user_id, "last_work", now.isoformat())
-    await message.answer(f"✅ <b>УСПЕШНО!</b>\n🔥 Вы поработали и заработали <b>{reward}</b> ₣!", parse_mode="HTML")
+    sent_msg = await message.answer(f"✅ <b>УСПЕШНО!</b>\n🔥 Вы поработали и заработали <b>{reward}</b> ₣!",
+                                    parse_mode="HTML")
+    asyncio.create_task(delete_later(sent_msg))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
@@ -71,11 +113,15 @@ async def cmd_pay(message: Message, bot: Bot):
         target_name = f"@{u.username}" if u.username else u.full_name
 
     if not target_id:
-        await message.answer("❌ Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
+        sent_msg = await message.answer(
+            "❌ Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     if idx >= len(parts) or not parts[idx].isdigit():
-        await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод 100</code>", parse_mode="HTML")
+        sent_msg = await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод 100</code>",
+                                        parse_mode="HTML")
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     amount = int(parts[idx])
@@ -83,23 +129,27 @@ async def cmd_pay(message: Message, bot: Bot):
 
     sender_id = message.from_user.id
     if sender_id == target_id:
-        await message.answer("❌ Нельзя переводить Феники самому себе.")
+        sent_msg = await message.answer("❌ Нельзя переводить Феники самому себе.")
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     eco_sender = await get_eco_data(sender_id)
     if not eco_sender or eco_sender["balance"] < amount:
-        await message.answer("❌ Недостаточно средств.")
+        sent_msg = await message.answer("❌ Недостаточно средств.")
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     eco_target = await get_eco_data(target_id)
     if not eco_target:
-        await message.answer("❌ Этот пользователь еще не зарегистрирован в экономической системе бота.")
+        sent_msg = await message.answer("❌ Этот пользователь еще не зарегистрирован в экономической системе бота.")
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     await update_balance(sender_id, -amount)
     await update_balance(target_id, amount)
-    await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣",
-                         parse_mode="HTML")
+    sent_msg = await message.answer(
+        f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣", parse_mode="HTML")
+    asyncio.create_task(delete_later(sent_msg))
 
 
 # ==========================================
@@ -143,32 +193,51 @@ async def cmd_casino_main(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
     if not eco:
-        return await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+        sent_msg = await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+        asyncio.create_task(delete_later(sent_msg, 60))
+        return
 
-    await message.answer(
+    sent_msg = await message.answer(
         f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n"
         f"💰 Твой баланс: <b>{eco['balance']}</b> ₣\n\n"
         f"Выбери игру, чтобы испытать удачу:",
         reply_markup=kb_casino_main(user_id),
         parse_mode="HTML"
     )
+    # Запоминаем меню как "последнюю игру", чтобы менюшки тоже стирались
+    await cleanup_old_game(message.bot, message.chat.id, user_id)
+    LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+    asyncio.create_task(delete_later(sent_msg))
 
 
 async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int = None):
+    bot = target.bot if hasattr(target, 'bot') else target.message.bot
+    chat_id = target.message.chat.id if isinstance(target, CallbackQuery) else target.chat.id
+
+    # Удаляем предыдущую игру/сообщения
+    await cleanup_old_game(bot, chat_id, user_id)
+
+    if isinstance(target, CallbackQuery):
+        try:
+            await target.message.delete()
+        except:
+            pass
+
     emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}
     emj = emoji_map[game]
 
     guess_text = f" Ты ставил на число <b>{guess}</b>." if game == "dice" else ""
     msg_text = f"{emj} Ставка <b>{bet}</b> ₣ принята!{guess_text}\nБросаю..."
 
-    if isinstance(target, CallbackQuery):
-        await target.message.edit_text(msg_text, parse_mode="HTML")
-        dice_msg = await target.message.answer_dice(emoji=emj)
-    else:
-        await target.answer(msg_text, parse_mode="HTML")
-        dice_msg = await target.answer_dice(emoji=emj)
+    info_msg = await bot.send_message(chat_id, msg_text, parse_mode="HTML")
+    dice_msg = await bot.send_dice(chat_id, emoji=emj)
 
     await asyncio.sleep(4.0 if game in ["slot", "bowl", "fball", "bball"] else 3.0)
+
+    try:
+        await info_msg.delete()
+    except:
+        pass
 
     val_res = dice_msg.dice.value
     mult = 0.0
@@ -206,10 +275,12 @@ async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int =
         [InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())]
     ])
 
-    if isinstance(target, CallbackQuery):
-        await target.message.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
-    else:
-        await target.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
+    res_msg = await bot.send_message(chat_id, res_text, reply_markup=kb_retry, parse_mode="HTML")
+
+    LAST_GAME_MSGS[user_id] = [dice_msg.message_id, res_msg.message_id]
+
+    asyncio.create_task(delete_later(dice_msg))
+    asyncio.create_task(delete_later(res_msg))
 
 
 @router.callback_query(CasinoCb.filter())
@@ -225,13 +296,22 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb):
 
     if act == "menu":
         eco = await get_eco_data(user_id)
-        await callback.message.edit_text(
+
+        await cleanup_old_game(callback.bot, callback.message.chat.id, user_id)
+        try:
+            await callback.message.delete()
+        except:
+            pass
+
+        sent_msg = await callback.message.answer(
             f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n"
             f"💰 Твой баланс: <b>{eco['balance']}</b> ₣\n\n"
             f"Выбери игру, чтобы испытать удачу:",
             reply_markup=kb_casino_main(user_id),
             parse_mode="HTML"
         )
+        LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     if act == "saper_route":
@@ -290,7 +370,6 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb):
         await run_emoji_game(callback, user_id, game, bet, guess)
 
 
-# Текстовые триггеры синонимов для моментального вызова
 @router.message(lambda msg: msg.text and msg.text.lower().split()[0] in [
     "слоты", "слот", "slots", "slot", "кости", "кубик", "кубики", "dice",
     "дартс", "darts", "боулинг", "боул", "bowling", "bowl",
@@ -319,12 +398,22 @@ async def cmd_direct_games(message: Message):
     if not bet_str:
         game_names = {"slot": "🎰 Слоты", "dice": "🎲 Кости", "darts": "🎯 Дартс", "bowl": "🎳 Боулинг",
                       "fball": "⚽️ Футбол", "bball": "🏀 Баскетбол"}
-        return await message.answer(f"{game_names[game]}\n\nВыберите размер ставки:",
-                                    reply_markup=kb_casino_bet(user_id, game), parse_mode="HTML")
+        sent_msg = await message.answer(f"{game_names[game]}\n\nВыберите размер ставки:",
+                                        reply_markup=kb_casino_bet(user_id, game), parse_mode="HTML")
+        await cleanup_old_game(message.bot, message.chat.id, user_id)
+        LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+        asyncio.create_task(delete_later(sent_msg))
+        return
 
     bet = eco['balance'] if bet_str == "all" else int(bet_str)
-    if bet < 10: return await message.answer("Минимальная ставка 10 ₣!")
-    if eco['balance'] < bet: return await message.answer("Недостаточно средств!")
+    if bet < 10:
+        sent = await message.answer("Минимальная ставка 10 ₣!")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+    if eco['balance'] < bet:
+        sent = await message.answer("Недостаточно средств!")
+        asyncio.create_task(delete_later(sent, 60))
+        return
 
     if game == "dice":
         guess = None
@@ -348,9 +437,12 @@ async def cmd_direct_games(message: Message):
                                       callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_6").pack())],
                 [InlineKeyboardButton(text="❌ Отмена", callback_data=CasinoCb(act="menu", game="none").pack())]
             ])
-            return await message.answer(
+            sent_msg = await message.answer(
                 f"🎲 Ставка: <b>{bet} ₣</b>\n\nНа какое число ставишь? (Угадаешь — заберешь x5!)",
                 reply_markup=kb_dice_guess, parse_mode="HTML")
+            await cleanup_old_game(message.bot, message.chat.id, user_id)
+            LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+            asyncio.create_task(delete_later(sent_msg))
         else:
             await run_emoji_game(message, user_id, game, bet, guess)
     else:
@@ -395,6 +487,16 @@ def calc_hand(hand):
 
 
 async def start_blackjack(callback: CallbackQuery, user_id: int, bet: int):
+    bot = callback.bot if hasattr(callback, 'bot') else callback.message.bot
+    chat_id = callback.message.chat.id if isinstance(callback, CallbackQuery) else callback.chat.id
+
+    await cleanup_old_game(bot, chat_id, user_id)
+    if isinstance(callback, CallbackQuery):
+        try:
+            await callback.message.delete()
+        except:
+            pass
+
     await update_balance(user_id, -bet)
 
     deck = get_deck()
@@ -413,7 +515,26 @@ async def start_blackjack(callback: CallbackQuery, user_id: int, bet: int):
         await finish_blackjack(callback, user_id, "bj")
         return
 
-    await render_blackjack(callback.message, user_id)
+    p_hand = ", ".join(player_hand)
+    d_card = dealer_hand[0]
+
+    text = (
+        f"🃏 <b>БЛЭКДЖЕК</b>\n\n"
+        f"💸 Ставка: <b>{bet} ₣</b>\n\n"
+        f"🏦 Дилер: {d_card}, 🂠 (?)\n"
+        f"👤 Ты: {p_hand} <b>({pval})</b>\n\n"
+        f"Твой ход:"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="👇 Ещё карту (Hit)", callback_data=BjCb(act="hit").pack()),
+         InlineKeyboardButton(text="✋ Хватит (Stand)", callback_data=BjCb(act="stand").pack())]
+    ])
+
+    sent_msg = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+    LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+    BJ_GAMES[user_id]["msg_id"] = sent_msg.message_id
+    asyncio.create_task(delete_later(sent_msg))
 
 
 async def render_blackjack(message: Message, user_id: int):
@@ -465,11 +586,15 @@ async def cb_bj_handler(callback: CallbackQuery, callback_data: BjCb):
 
 
 async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str):
+    bot = callback.bot if hasattr(callback, 'bot') else callback.message.bot
+    chat_id = callback.message.chat.id if isinstance(callback, CallbackQuery) else callback.chat.id
+
     game = BJ_GAMES.pop(user_id)
     bet = game["bet"]
     p_hand = game["player_hand"]
     d_hand = game["dealer_hand"]
     deck = game["deck"]
+    msg_id = game.get("msg_id")
 
     pval = calc_hand(p_hand)
 
@@ -520,12 +645,20 @@ async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str):
         [InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())]
     ])
 
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    if isinstance(callback, CallbackQuery):
+        await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    else:
+        # Если вызвалось сразу с раздачи (не через кнопку)
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=text, reply_markup=kb,
+                                        parse_mode="HTML")
+        except:
+            pass
 
 
 @router.message(
     lambda msg: msg.text and msg.text.lower().split()[0] in ["блекджек", "блэкджек", "21", "очко", "двадцатьодно",
-                                                             "двадцать", "очко"])
+                                                             "двадцать"])
 async def cmd_bj_direct(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
@@ -537,19 +670,29 @@ async def cmd_bj_direct(message: Message):
         bal = eco['balance']
         bet = bal if val == "all" else int(val)
 
-        if bet < 10: return await message.answer("Минимальная ставка 10 ₣!")
-        if bal < bet: return await message.answer("Недостаточно средств!")
+        if bet < 10:
+            sent = await message.answer("Минимальная ставка 10 ₣!")
+            asyncio.create_task(delete_later(sent, 60))
+            return
+        if bal < bet:
+            sent = await message.answer("Недостаточно средств!")
+            asyncio.create_task(delete_later(sent, 60))
+            return
 
         class FakeCb:
             def __init__(self, msg):
                 self.message = msg
                 self.from_user = msg.from_user
+                self.bot = msg.bot
+                self.chat = msg.chat
 
-        sent_msg = await message.answer("Раздаю карты...")
-        await start_blackjack(FakeCb(sent_msg), user_id, bet)
+        await start_blackjack(FakeCb(message), user_id, bet)
     else:
-        await message.answer("🃏 <b>БЛЭКДЖЕК</b>\n\nВыберите размер ставки:", reply_markup=kb_casino_bet(user_id, "bj"),
-                             parse_mode="HTML")
+        sent_msg = await message.answer("🃏 <b>БЛЭКДЖЕК</b>\n\nВыберите размер ставки:",
+                                        reply_markup=kb_casino_bet(user_id, "bj"), parse_mode="HTML")
+        await cleanup_old_game(message.bot, message.chat.id, user_id)
+        LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+        asyncio.create_task(delete_later(sent_msg))
 
 
 # ==========================================
@@ -653,14 +796,20 @@ async def cmd_saper(message: Message):
                     diff = d_key
                     break
 
+    await cleanup_old_game(message.bot, message.chat.id, user_id)
+
     if not bet_str:
-        await message.answer("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
-                             reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
+        sent_msg = await message.answer("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
+                                        reply_markup=kb_saper_setup_bet(user_id), parse_mode="HTML")
+        LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     if not diff:
-        await message.answer(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{bet_str}</b> ₣\nВыберите сложность:",
-                             reply_markup=kb_saper_setup_diff(user_id, bet_str), parse_mode="HTML")
+        sent_msg = await message.answer(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{bet_str}</b> ₣\nВыберите сложность:",
+                                        reply_markup=kb_saper_setup_diff(user_id, bet_str), parse_mode="HTML")
+        LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+        asyncio.create_task(delete_later(sent_msg))
         return
 
     await start_saper_game(message.chat.id, user_id, message.from_user.full_name, bet_str, diff, bot_msg=message)
@@ -668,30 +817,25 @@ async def cmd_saper(message: Message):
 
 async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: str, diff: str, bot_msg=None):
     eco = await get_eco_data(user_id)
+    bot = bot_msg.bot if hasattr(bot_msg, 'bot') else getattr(bot_msg.message, 'bot', None)
+
+    await cleanup_old_game(bot, chat_id, user_id)
 
     async def send_error(txt):
         if isinstance(bot_msg, Message):
-            await bot_msg.answer(txt)
+            msg = await bot_msg.answer(txt)
+            asyncio.create_task(delete_later(msg, 60))
         elif isinstance(bot_msg, CallbackQuery):
             await bot_msg.message.edit_text(txt)
 
     if not eco:
-        await send_error("❌ У вас нет счета. Зарегистрируйтесь в боте.")
-        return
+        return await send_error("❌ У вас нет счета. Зарегистрируйтесь в боте.")
 
     bal = eco["balance"]
-    if bet_str == "all":
-        bet = bal
-    else:
-        bet = int(bet_str)
+    bet = bal if bet_str == "all" else int(bet_str)
 
-    if bet < 10:
-        await send_error("❌ Минимальная ставка в сапере — <b>10</b> ₣.")
-        return
-
-    if bal < bet:
-        await send_error("❌ Недостаточно средств для этой ставки.")
-        return
+    if bet < 10: return await send_error("❌ Минимальная ставка в сапере — <b>10</b> ₣.")
+    if bal < bet: return await send_error("❌ Недостаточно средств для этой ставки.")
 
     await update_balance(user_id, -bet)
 
@@ -720,10 +864,16 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
     )
 
     kb = kb_saper_game(user_id)
-    if isinstance(bot_msg, Message):
-        await bot_msg.answer(text, reply_markup=kb, parse_mode="HTML")
-    elif isinstance(bot_msg, CallbackQuery):
-        await bot_msg.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+
+    if isinstance(bot_msg, CallbackQuery):
+        try:
+            await bot_msg.message.delete()
+        except:
+            pass
+
+    sent_msg = await bot.send_message(chat_id, text, reply_markup=kb, parse_mode="HTML")
+    LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
+    asyncio.create_task(delete_later(sent_msg))
 
 
 @router.callback_query(SaperSetupCb.filter())
@@ -831,6 +981,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
             await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
             del SAPER_GAMES[user_id]
             return
+
         current_win = int(game["bet"] * game["mult"])
         text = (
             f"💣 <b>САПЕР</b> 💣\n\n"

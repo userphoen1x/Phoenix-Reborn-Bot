@@ -25,7 +25,8 @@ class TopCb(CallbackData, prefix="top"):
 sticker_spam_cache = {}
 
 
-async def delete_later(message: Message, delay: int = 86400):
+async def delete_later(message: Message, delay: int = 10800):
+    """Глобальное автоудаление через 3 часа по умолчанию"""
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -118,11 +119,11 @@ async def admin_force_scan(message: Message):
     admin_id = os.getenv("ADMIN_ID")
     if not admin_id or message.from_user.id != int(admin_id): return
     sent_msg = await message.answer("⏳ Собираю данные...")
-    asyncio.create_task(delete_later(sent_msg))
+    asyncio.create_task(delete_later(sent_msg, 60))
     from utils.scheduler import collect_daily_stats
     await collect_daily_stats()
     sent_msg2 = await message.answer("✅ Готово")
-    asyncio.create_task(delete_later(sent_msg2))
+    asyncio.create_task(delete_later(sent_msg2, 60))
 
 
 @router.message(lambda msg: msg.text and msg.text.lower().startswith(("топ", "top")))
@@ -172,11 +173,11 @@ async def cmd_top_trigger(message: Message):
         sent_msg = await message.answer("⏳ Собираю актуальные данные...",
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
 
-        # Запрашиваем ЖИВЫЕ профили для идеальной синхронизации
         live_members, err = await get_live_club_detailed_stats(c)
         if not live_members:
             await sent_msg.edit_text("❌ Ошибка загрузки данных из API.",
                                      link_preview_options=LinkPreviewOptions(is_disabled=True))
+            asyncio.create_task(delete_later(sent_msg, 60))
             return
 
         tags_filter = [m["tag"] for m in live_members]
@@ -253,7 +254,6 @@ async def cmd_top_trigger(message: Message):
                                         link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
-        # Запрашиваем живые профили
         members, err = await get_live_club_detailed_stats(c)
         if not members:
             err_msg = f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки."
@@ -448,7 +448,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         back = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
-            live_members, err = await get_live_club_detailed_stats(c)
+            live_members, err = await get_all_club_members(c)
             if not live_members:
                 await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
                                                  link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -528,7 +528,7 @@ async def cmd_moderation(message: Message, bot: Bot):
     if not target_id:
         sent_msg = await message.answer(
             "❌ Не удалось найти пользователя. Укажите @username (если он есть в базе) или ответьте на его сообщение.")
-        asyncio.create_task(delete_later(sent_msg, 10))
+        asyncio.create_task(delete_later(sent_msg, 60))
         return
 
     time_str = ""
@@ -670,23 +670,28 @@ async def cmd_moderation(message: Message, bot: Bot):
     except Exception as e:
         err_msg = await message.answer("❌ Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.",
                                        link_preview_options=LinkPreviewOptions(is_disabled=True))
-        asyncio.create_task(delete_later(err_msg, 10))
+        asyncio.create_task(delete_later(err_msg, 60))
 
 
 @router.message(F.sticker)
 async def sticker_anti_spam(message: Message, bot: Bot):
     user_id = message.from_user.id
     now = time.time()
+    msg_id = message.message_id
 
     if user_id not in sticker_spam_cache:
         sticker_spam_cache[user_id] = []
 
-    sticker_spam_cache[user_id] = [t for t in sticker_spam_cache[user_id] if now - t <= 1.0]
+    # Храним кортежи (время, message_id) за последние 60 секунд
+    sticker_spam_cache[user_id] = [(t, mid) for t, mid in sticker_spam_cache[user_id] if now - t <= 60.0]
 
-    sticker_spam_cache[user_id].append(now)
+    sticker_spam_cache[user_id].append((now, msg_id))
 
-    if len(sticker_spam_cache[user_id]) > 4:
-        until = datetime.now() + timedelta(minutes=1)
+    # Считаем, сколько стикеров было отправлено за последнюю 1 секунду
+    recent_count = sum(1 for t, mid in sticker_spam_cache[user_id] if now - t <= 1.0)
+
+    if recent_count > 4:
+        until = datetime.now() + timedelta(minutes=10)
         try:
             await bot.restrict_chat_member(
                 message.chat.id,
@@ -694,6 +699,14 @@ async def sticker_anti_spam(message: Message, bot: Bot):
                 permissions=ChatPermissions(can_send_messages=False),
                 until_date=until
             )
+
+            # Удаляем все сохраненные стикеры этого юзера (за последнюю минуту)
+            for t, mid in sticker_spam_cache[user_id]:
+                try:
+                    await bot.delete_message(message.chat.id, mid)
+                except:
+                    pass
+
             sticker_spam_cache[user_id] = []
 
             u_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
@@ -701,9 +714,9 @@ async def sticker_anti_spam(message: Message, bot: Bot):
             sym = ROLE_SYMBOLS.get(role, "👻")
 
             msg = await message.answer(
-                f"🔇 Пользователь {sym} {u_name} лишен права голоса на 1 минуту.\n📝 Причина: Флуд стикерами.",
+                f"🔇 Пользователь {sym} {u_name} лишен права голоса на 10 минут.\n📝 Причина: Флуд стикерами.",
                 link_preview_options=LinkPreviewOptions(is_disabled=True))
-            asyncio.create_task(delete_later(msg, 60))
+            asyncio.create_task(delete_later(msg))
         except:
             pass
 
@@ -715,7 +728,7 @@ async def message_counter(message: Message):
     if message.text:
         if not message.text.lower().startswith(
                 ("топ", "top", "мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан",
-                 "unban")):
+                 "unban", "слоты", "слот", "кости", "дартс", "боулинг", "футбол", "баскетбол", "сапер", "блекджек")):
             from utils.database import increment_message
             name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             await increment_message(message.from_user.id, message.chat.id, name)
