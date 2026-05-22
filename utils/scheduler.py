@@ -91,7 +91,6 @@ async def check_roles(bot: Bot):
                     except:
                         pass
 
-
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     # Сброс и снимок выполняются ровно в 4:00 по московскому времени

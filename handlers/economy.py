@@ -831,7 +831,6 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb):
             await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
             del SAPER_GAMES[user_id]
             return
-
         current_win = int(game["bet"] * game["mult"])
         text = (
             f"💣 <b>САПЕР</b> 💣\n\n"
