@@ -41,8 +41,6 @@ async def main():
     dp.include_router(reg_router)
     dp.include_router(group_router)
     dp.include_router(group_cmds_router)
-    dp.include_router(group_router)
-    dp.include_router(group_cmds_router)
     dp.include_router(ai_router)
 
     try:
