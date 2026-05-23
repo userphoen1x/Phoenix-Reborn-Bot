@@ -16,6 +16,7 @@ from handlers.profile import router as profile_router
 from handlers.economy import router as economy_router
 from utils.database import init_db, upgrade_db_roles, upgrade_db_economy
 from utils.scheduler import start_scheduler
+from handlers.ai_chat import router as ai_router
 
 
 async def main():
@@ -40,6 +41,9 @@ async def main():
     dp.include_router(reg_router)
     dp.include_router(group_router)
     dp.include_router(group_cmds_router)
+    dp.include_router(group_router)
+    dp.include_router(group_cmds_router)
+    dp.include_router(ai_router)
 
     try:
         async with aiohttp.ClientSession() as session:

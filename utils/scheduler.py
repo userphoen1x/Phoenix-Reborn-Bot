@@ -1,12 +1,14 @@
 import asyncio
 import logging
 import os
-from datetime import date
+import httpx
+from datetime import date, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils.brawl_api import get_all_club_members, get_player_stats
-from utils.database import save_snapshot, get_all_users_for_roles, set_user_role
+from utils.database import save_snapshot, get_all_users_for_roles, set_user_role, get_today_chat_logs, \
+    clear_old_chat_logs
 
 
 async def collect_daily_stats():
@@ -33,7 +35,61 @@ async def collect_daily_stats():
     logging.info("END DAILY SNAPSHOT RESET")
 
 
+async def run_archivist_summary(bot: Bot):
+    """Каждый вечер собирает логи чата и выдает сводку дня от имени Архивариуса"""
+    logging.info("START ARCHIVIST DAILY SUMMARY")
+    target_chat = os.getenv("TARGET_CHAT_ID")  # ID группы прописывается в Railway переменные
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not target_chat or not api_key:
+        logging.warning("Пропустил сводку Архивариуса: не задан TARGET_CHAT_ID или GROQ_API_KEY")
+        return
+
+    logs_today = await get_today_chat_logs(int(target_chat))
+    if not logs_today or len(logs_today.strip()) < 50:
+        logging.info("Чат сегодня был слишком неактивен для сводки.")
+        return
+
+    system_prompt = (
+        "Ты — 'Архивариус' и летописец сообщества Phoenix Reborn. Ты извлекаешь смыслы из хаоса. "
+        "Твой стиль: кратко, хлестко, иронично, по-ветерански. Никакого позитива и приветствий.\n\n"
+        "ПРАВИЛА:\n"
+        "1. Используй ТОЛЬКО HTML-теги <b>текст</b> для жирного шрифта. Звездочки (*) КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНЫ.\n"
+        "2. Выделяй жирным имена участников и ключевые темы.\n"
+        "3. Ты всегда на стороне Phoenix Reborn.\n\n"
+        "СТРУКТУРА ОТВЕТА:\n"
+        "🔥 <b>ГЛАВНОЕ СОБЫТИЕ</b>\n(Описание ключевого инфоповода дня)\n\n"
+        "🗣 <b>ОСНОВНЫЕ ТЕМЫ ДНЯ</b>\n(3-5 тем с упоминанием зачинщиков через <b>имя</b>. Кратко, по 2-3 предложения.)"
+    )
+
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"Вот логи сегодняшнего общения:\n\n{logs_today}"}
+        ],
+        "temperature": 0.7
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, headers=headers, timeout=30.0)
+            if response.status_code == 200:
+                summary_text = response.json()["choices"][0]["message"]["content"]
+                # Публикуем в главный чат
+                await bot.send_message(chat_id=int(target_chat), text=summary_text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"Ошибка Архивариуса: {e}")
+
+    # Сразу очищаем логи старше 3 дней
+    await clear_old_chat_logs()
+    logging.info("END ARCHIVIST DAILY SUMMARY")
+
+
 async def check_roles(bot: Bot):
+    # Твоя ролевая функция остается без изменений
     members, _ = await get_all_club_members()
     api_roles = {}
     role_translation = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
@@ -64,8 +120,7 @@ async def check_roles(bot: Bot):
                         pass
         else:
             api_role = api_roles[tag]
-            if api_role == db_role:
-                continue
+            if api_role == db_role: continue
 
             if api_role in ["Участник", "Ветеран"]:
                 await set_user_role(u_id, api_role, "Одобрен")
@@ -75,9 +130,7 @@ async def check_roles(bot: Bot):
                     except:
                         pass
             elif api_role in ["Президент", "Вице-президент"]:
-                if status in ["Ожидает", "Отклонен"]:
-                    continue
-
+                if status in ["Ожидает", "Отклонен"]: continue
                 await set_user_role(u_id, db_role, "Ожидает")
                 if founder_id:
                     role_eng = "president" if api_role == "Президент" else "vicePresident"
@@ -91,9 +144,11 @@ async def check_roles(bot: Bot):
                     except:
                         pass
 
+
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
-    # Сброс и снимок выполняются ровно в 4:00 по московскому времени
     scheduler.add_job(collect_daily_stats, 'cron', hour=4, minute=0)
+    # Архивариус делает отчет в 23:30 по МСК каждый день
+    scheduler.add_job(run_archivist_summary, 'cron', hour=23, minute=30, args=[bot])
     scheduler.add_job(check_roles, 'interval', minutes=1, args=[bot])
     scheduler.start()

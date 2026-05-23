@@ -112,6 +112,34 @@ async def init_db():
                          )
                              )
                          """)
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS chat_logs
+                         (
+                             chat_id
+                             INTEGER,
+                             user_id
+                             INTEGER,
+                             full_name
+                             TEXT,
+                             text
+                             TEXT,
+                             msg_timestamp
+                             DATETIME
+                         )
+                         """)
+        await db.execute("""
+                         CREATE TABLE IF NOT EXISTS chat_modes
+                         (
+                             chat_id
+                             INTEGER
+                             PRIMARY
+                             KEY,
+                             mode
+                             TEXT
+                             DEFAULT
+                             'default'
+                         )
+                         """)
         await db.commit()
 
 
@@ -384,3 +412,55 @@ async def get_all_users_for_roles():
             return [
                 {"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]}
                 for r in rows]
+
+async def log_chat_message(chat_id: int, user_id: int, full_name: str, text: str):
+    """Записывает сообщение в лог для памяти ИИ и Архивариуса"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute(
+            "INSERT INTO chat_logs (chat_id, user_id, full_name, text, msg_timestamp) VALUES (?, ?, ?, ?, ?)",
+            (chat_id, user_id, full_name, text, datetime.now().isoformat())
+        )
+        await db.commit()
+
+async def get_chat_context(chat_id: int, limit: int = 15) -> list:
+    """Вытаскивает последние сообщения чата за 3 дня для контекста ИИ"""
+    three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT user_id, full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp DESC LIMIT ?",
+            (chat_id, three_days_ago, limit)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            # Возвращаем в хронологическом порядке (от старых к новым)
+            return rows[::-1]
+
+async def get_today_chat_logs(chat_id: int) -> str:
+    """Собирает все логи чата за текущие сутки для Архивариуса"""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute(
+            "SELECT full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp ASC",
+            (chat_id, today_start)
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return "\n".join([f"{row[0]}: {row[1]}" for row in rows])
+
+async def get_chat_mode(chat_id: int) -> str:
+    """Получает текущий характер ИИ для чата"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT mode FROM chat_modes WHERE chat_id = ?", (chat_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else "default"
+
+async def set_chat_mode(chat_id: int, mode: str):
+    """Сохраняет выбранный характер ИИ для чата"""
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("INSERT OR REPLACE INTO chat_modes (chat_id, mode) VALUES (?, ?)", (chat_id, mode))
+        await db.commit()
+
+async def clear_old_chat_logs():
+    """Удаляет логи старше 3 дней, чтобы база не раздувалась"""
+    three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM chat_logs WHERE msg_timestamp < ?", (three_days_ago,))
+        await db.commit()
