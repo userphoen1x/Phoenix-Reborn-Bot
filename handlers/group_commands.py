@@ -10,7 +10,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters.callback_data import CallbackData
 from utils.brawl_api import get_all_club_members, CLAN_TAGS, get_live_club_detailed_stats, get_clan_names
 from utils.database import get_top_messages, get_baseline_trophies, get_top_absolute, get_tag_to_tg_map, \
-    get_user_role_by_id, get_top_balance, ROLE_SYMBOLS
+    get_user_role_by_id, get_top_balance, set_user_role, ROLE_SYMBOLS, DB_NAME
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -25,8 +25,14 @@ class TopCb(CallbackData, prefix="top"):
 sticker_spam_cache = {}
 
 
+def is_cmd(text: str, cmds: list) -> bool:
+    """Проверяет, является ли первое слово точной командой"""
+    if not text: return False
+    t = text.lower().strip()
+    return any(t == c or t.startswith(c + " ") for c in cmds)
+
+
 async def delete_later(message: Message, delay: int = 10800):
-    """Глобальное автоудаление через 3 часа по умолчанию"""
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -126,7 +132,70 @@ async def admin_force_scan(message: Message):
     asyncio.create_task(delete_later(sent_msg2, 60))
 
 
-@router.message(lambda msg: msg.text and msg.text.lower().startswith(("топ", "top")))
+@router.message(lambda msg: is_cmd(msg.text, ["понизить", "демоут"]))
+async def cmd_demote(message: Message):
+    admin_role = await get_user_role_by_id(message.from_user.id)
+    if admin_role not in ["Основатель", "Президент"]: return
+
+    parts = message.text.split()
+    target_id, target_name = None, None
+
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
+    elif len(parts) > 1 and parts[1].startswith("@"):
+        target_username = parts[1]
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                                  (target_username,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    target_id, target_name = row[0], target_username
+
+    if not target_id:
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
+    await set_user_role(target_id, "Гость", "Отклонен")
+    sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
+                                parse_mode="HTML")
+    asyncio.create_task(delete_later(sent))
+
+
+@router.message(lambda msg: is_cmd(msg.text, ["вернуть звание", "восстановить", "вернуть"]))
+async def cmd_restore_rank(message: Message):
+    admin_role = await get_user_role_by_id(message.from_user.id)
+    if admin_role not in ["Основатель", "Президент"]: return
+
+    parts = message.text.split()
+    target_id, target_name = None, None
+
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
+    elif len(parts) > 2 and parts[-1].startswith("@"):  # "вернуть звание @username"
+        target_username = parts[-1]
+        async with aiosqlite.connect(DB_NAME) as db:
+            async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
+                                  (target_username,)) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    target_id, target_name = row[0], target_username
+
+    if not target_id:
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
+    await set_user_role(target_id, "Участник", "Одобрен")
+    sent = await message.answer(
+        f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
+        parse_mode="HTML")
+    asyncio.create_task(delete_later(sent))
+
+
+@router.message(lambda msg: is_cmd(msg.text, ["топ", "top", "топ10", "top10", "топ 10", "top 10"]))
 async def cmd_top_trigger(message: Message):
     text = message.text.lower().strip()
     for prefix in ["топ 10", "top 10", "топ10", "top10", "топ", "top"]:
@@ -491,8 +560,9 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                                              link_preview_options=LinkPreviewOptions(is_disabled=True))
 
 
-@router.message(lambda msg: msg.text and msg.text.lower().startswith(
-    ("мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан", "unban")))
+@router.message(lambda msg: is_cmd(msg.text,
+                                   ["мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан",
+                                    "unban"]))
 async def cmd_moderation(message: Message, bot: Bot):
     admin_id = message.from_user.id
     a_role = await get_user_role_by_id(admin_id)
@@ -509,11 +579,10 @@ async def cmd_moderation(message: Message, bot: Bot):
     target_name = None
     idx = 1
 
-    if idx < len(parts) and parts[idx].startswith("@"):
+    if len(parts) > 1 and parts[idx].startswith("@"):
         target_username = parts[idx]
         idx += 1
-        db_path = "/app/data/bot_data_v3.db"
-        async with aiosqlite.connect(db_path) as db:
+        async with aiosqlite.connect(DB_NAME) as db:
             async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
                                   (target_username,)) as cursor:
                 row = await cursor.fetchone()
@@ -682,12 +751,10 @@ async def sticker_anti_spam(message: Message, bot: Bot):
     if user_id not in sticker_spam_cache:
         sticker_spam_cache[user_id] = []
 
-    # Храним кортежи (время, message_id) за последние 60 секунд
     sticker_spam_cache[user_id] = [(t, mid) for t, mid in sticker_spam_cache[user_id] if now - t <= 60.0]
 
     sticker_spam_cache[user_id].append((now, msg_id))
 
-    # Считаем, сколько стикеров было отправлено за последнюю 1 секунду
     recent_count = sum(1 for t, mid in sticker_spam_cache[user_id] if now - t <= 1.0)
 
     if recent_count > 4:
@@ -700,7 +767,6 @@ async def sticker_anti_spam(message: Message, bot: Bot):
                 until_date=until
             )
 
-            # Удаляем все сохраненные стикеры этого юзера (за последнюю минуту)
             for t, mid in sticker_spam_cache[user_id]:
                 try:
                     await bot.delete_message(message.chat.id, mid)
@@ -723,12 +789,16 @@ async def sticker_anti_spam(message: Message, bot: Bot):
 
 @router.message()
 async def message_counter(message: Message):
-    if message.from_user.is_bot:
-        return
+    if message.from_user.is_bot: return
     if message.text:
-        if not message.text.lower().startswith(
-                ("топ", "top", "мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан",
-                 "unban", "слоты", "слот", "кости", "дартс", "боулинг", "футбол", "баскетбол", "сапер", "блекджек")):
+        cmd_word = message.text.lower().strip().split()[0]
+        ignore_list = [
+            "топ", "top", "топ10", "top10", "мут", "mute", "анмут", "unmute", "размут",
+            "кик", "kick", "бан", "ban", "разбан", "unban", "слоты", "слот", "кости",
+            "дартс", "боулинг", "футбол", "баскетбол", "сапер", "блекджек", "баланс",
+            "кошелек", "счет", "понизить", "вернуть"
+        ]
+        if cmd_word not in ignore_list:
             from utils.database import increment_message
             name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
             await increment_message(message.from_user.id, message.chat.id, name)

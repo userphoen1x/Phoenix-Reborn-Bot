@@ -6,7 +6,7 @@ from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters.callback_data import CallbackData
-from utils.database import get_eco_data, update_balance, set_eco_data
+from utils.database import get_eco_data, update_balance, set_eco_data, DB_NAME, get_user_role_by_id
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -14,8 +14,14 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 LAST_GAME_MSGS = {}
 
 
+def is_cmd(text: str, cmds: list) -> bool:
+    """Проверяет, является ли первое слово точной командой (защита от 'переводчик')"""
+    if not text: return False
+    t = text.lower().strip()
+    return any(t == c or t.startswith(c + " ") for c in cmds)
+
+
 async def delete_later(message: Message, delay: int = 10800):
-    """Автоматически удаляет сообщение через заданное время (по умолчанию 3 часа)"""
     await asyncio.sleep(delay)
     try:
         await message.delete()
@@ -24,7 +30,6 @@ async def delete_later(message: Message, delay: int = 10800):
 
 
 async def cleanup_old_game(bot: Bot, chat_id: int, user_id: int):
-    """Удаляет предыдущую партию игр пользователя, чтобы не засорять чат"""
     if user_id in LAST_GAME_MSGS:
         for mid in LAST_GAME_MSGS[user_id]:
             try:
@@ -41,27 +46,40 @@ def get_class_bonus(bot_class: str):
     return {"work_cd": 4, "luck": 0.0, "rob_mult": 1.0}
 
 
-@router.message(
-    lambda msg: msg.text and msg.text.lower() in ["баланс", "кошелек", "кошелёк", "счет", "счёт", "/balance",
-                                                  "balance"])
+@router.message(lambda msg: is_cmd(msg.text, ["сброс экономики"]))
+async def cmd_reset_eco(message: Message):
+    admin_role = await get_user_role_by_id(message.from_user.id)
+    if admin_role not in ["Основатель", "Программист"]: return
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("UPDATE tg_profiles SET balance = 1000")
+        await db.commit()
+    sent = await message.answer("✅ Балансы всех игроков временно сброшены до 1000 ₣.")
+    asyncio.create_task(delete_later(sent, 60))
+
+
+@router.message(lambda msg: is_cmd(msg.text, ["баланс", "кошелек", "кошелёк", "счет", "счёт", "/balance", "balance"]))
 async def cmd_balance(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
-    if not eco:
-        sent_msg = await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+    if not eco or not eco.get("bs_tag"):
+        sent_msg = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    sent_msg = await message.answer(f"💰 Ваш баланс: <b>{eco['balance']}</b> ₣", parse_mode="HTML")
+    name = f"@{message.from_user.username}" if message.from_user.username else f"<b>{message.from_user.first_name}</b>"
+    sent_msg = await message.answer(f"💳 {name}, ваш баланс: <b>{eco['balance']}</b> ₣", parse_mode="HTML")
     asyncio.create_task(delete_later(sent_msg))
-    asyncio.create_task(delete_later(message))  # Автоматически подчищаем и команду юзера
+    asyncio.create_task(delete_later(message))
 
 
-@router.message(F.text.lower().in_({"работа", "ворк"}))
+@router.message(lambda msg: is_cmd(msg.text, ["работа", "ворк"]))
 async def cmd_work(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
-    if not eco: return
+    if not eco or not eco.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
 
     bonuses = get_class_bonus(eco["bot_class"])
     cd_hours = bonuses["work_cd"]
@@ -87,20 +105,30 @@ async def cmd_work(message: Message):
     asyncio.create_task(delete_later(sent_msg))
 
 
-@router.message(lambda msg: msg.text and msg.text.lower().startswith(("перевод", "перевести", "pay", "/pay")))
+@router.message(lambda msg: is_cmd(msg.text, ["перевод", "перевести", "pay", "/pay"]))
 async def cmd_pay(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    eco_sender = await get_eco_data(user_id)
+    if not eco_sender or not eco_sender.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
     parts = message.text.split()
-    if not parts: return
+    if len(parts) < 3:
+        sent = await message.answer("❌ Укажите пользователя и сумму. Пример: <code>перевод @username 100</code>",
+                                    parse_mode="HTML")
+        asyncio.create_task(delete_later(sent, 60))
+        return
 
     target_id = None
     target_name = None
     idx = 1
 
-    if idx < len(parts) and parts[idx].startswith("@"):
+    if parts[idx].startswith("@"):
         target_username = parts[idx]
         idx += 1
-        db_path = "/app/data/bot_data_v3.db"
-        async with aiosqlite.connect(db_path) as db:
+        async with aiosqlite.connect(DB_NAME) as db:
             async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
                                   (target_username,)) as cursor:
                 row = await cursor.fetchone()
@@ -118,8 +146,8 @@ async def cmd_pay(message: Message, bot: Bot):
         asyncio.create_task(delete_later(sent_msg))
         return
 
-    if idx >= len(parts) or not parts[idx].isdigit():
-        sent_msg = await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод 100</code>",
+    if not parts[idx].isdigit():
+        sent_msg = await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод @username 100</code>",
                                         parse_mode="HTML")
         asyncio.create_task(delete_later(sent_msg))
         return
@@ -127,25 +155,23 @@ async def cmd_pay(message: Message, bot: Bot):
     amount = int(parts[idx])
     if amount <= 0: return
 
-    sender_id = message.from_user.id
-    if sender_id == target_id:
+    if user_id == target_id:
         sent_msg = await message.answer("❌ Нельзя переводить Феники самому себе.")
         asyncio.create_task(delete_later(sent_msg))
         return
 
-    eco_sender = await get_eco_data(sender_id)
-    if not eco_sender or eco_sender["balance"] < amount:
+    if eco_sender["balance"] < amount:
         sent_msg = await message.answer("❌ Недостаточно средств.")
         asyncio.create_task(delete_later(sent_msg))
         return
 
     eco_target = await get_eco_data(target_id)
-    if not eco_target:
-        sent_msg = await message.answer("❌ Этот пользователь еще не зарегистрирован в экономической системе бота.")
+    if not eco_target or not eco_target.get("bs_tag"):
+        sent_msg = await message.answer("❌ Этот пользователь еще не зарегистрирован.")
         asyncio.create_task(delete_later(sent_msg))
         return
 
-    await update_balance(sender_id, -amount)
+    await update_balance(user_id, -amount)
     await update_balance(target_id, amount)
     sent_msg = await message.answer(
         f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣", parse_mode="HTML")
@@ -188,12 +214,12 @@ def kb_casino_bet(user_id: int, game: str):
     ])
 
 
-@router.message(lambda msg: msg.text and msg.text.lower() in ["казик", "казино", "игра", "игры", "casino", "games"])
+@router.message(lambda msg: is_cmd(msg.text, ["казик", "казино", "игра", "игры", "casino", "games"]))
 async def cmd_casino_main(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
-    if not eco:
-        sent_msg = await message.answer("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+    if not eco or not eco.get("bs_tag"):
+        sent_msg = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
@@ -204,7 +230,6 @@ async def cmd_casino_main(message: Message):
         reply_markup=kb_casino_main(user_id),
         parse_mode="HTML"
     )
-    # Запоминаем меню как "последнюю игру", чтобы менюшки тоже стирались
     await cleanup_old_game(message.bot, message.chat.id, user_id)
     LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
     asyncio.create_task(delete_later(sent_msg))
@@ -214,7 +239,6 @@ async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int =
     bot = target.bot if hasattr(target, 'bot') else target.message.bot
     chat_id = target.message.chat.id if isinstance(target, CallbackQuery) else target.chat.id
 
-    # Удаляем предыдущую игру/сообщения
     await cleanup_old_game(bot, chat_id, user_id)
 
     if isinstance(target, CallbackQuery):
@@ -222,6 +246,9 @@ async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int =
             await target.message.delete()
         except:
             pass
+
+    # Списываем ставку до броска кубика (решение проблемы ва-банка)
+    await update_balance(user_id, -bet)
 
     emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}
     emj = emoji_map[game]
@@ -276,9 +303,7 @@ async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int =
     ])
 
     res_msg = await bot.send_message(chat_id, res_text, reply_markup=kb_retry, parse_mode="HTML")
-
     LAST_GAME_MSGS[user_id] = [dice_msg.message_id, res_msg.message_id]
-
     asyncio.create_task(delete_later(dice_msg))
     asyncio.create_task(delete_later(res_msg))
 
@@ -296,7 +321,6 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb):
 
     if act == "menu":
         eco = await get_eco_data(user_id)
-
         await cleanup_old_game(callback.bot, callback.message.chat.id, user_id)
         try:
             await callback.message.delete()
@@ -370,15 +394,17 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb):
         await run_emoji_game(callback, user_id, game, bet, guess)
 
 
-@router.message(lambda msg: msg.text and msg.text.lower().split()[0] in [
-    "слоты", "слот", "slots", "slot", "кости", "кубик", "кубики", "dice",
-    "дартс", "darts", "боулинг", "боул", "bowling", "bowl",
-    "футбол", "ногомяч", "football", "fball", "баскетбол", "баскет", "basketball", "bball"
-])
+@router.message(lambda msg: is_cmd(msg.text,
+                                   ["слоты", "слот", "slots", "slot", "кости", "кубик", "кубики", "dice", "дартс",
+                                    "darts", "боулинг", "боул", "bowling", "bowl", "футбол", "ногомяч", "football",
+                                    "fball", "баскетбол", "баскет", "basketball", "bball"]))
 async def cmd_direct_games(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
-    if not eco: return
+    if not eco or not eco.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
 
     parts = message.text.lower().split()
     cmd = parts[0]
@@ -648,7 +674,6 @@ async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str):
     if isinstance(callback, CallbackQuery):
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     else:
-        # Если вызвалось сразу с раздачи (не через кнопку)
         try:
             await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=text, reply_markup=kb,
                                         parse_mode="HTML")
@@ -656,13 +681,14 @@ async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str):
             pass
 
 
-@router.message(
-    lambda msg: msg.text and msg.text.lower().split()[0] in ["блекджек", "блэкджек", "21", "очко", "двадцатьодно",
-                                                             "двадцать"])
+@router.message(lambda msg: is_cmd(msg.text, ["блекджек", "блэкджек", "21", "очко", "двадцатьодно", "двадцать одно"]))
 async def cmd_bj_direct(message: Message):
     user_id = message.from_user.id
     eco = await get_eco_data(user_id)
-    if not eco: return
+    if not eco or not eco.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
 
     parts = message.text.lower().split()
     if len(parts) > 1 and (parts[1].isdigit() or parts[1] == "all"):
@@ -773,9 +799,15 @@ def kb_saper_game(user_id: int, game_over=False):
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 
-@router.message(lambda msg: msg.text and msg.text.lower().startswith(("сапер", "saper", "сапёр")))
+@router.message(lambda msg: is_cmd(msg.text, ["сапер", "saper", "сапёр"]))
 async def cmd_saper(message: Message):
     user_id = message.from_user.id
+    eco = await get_eco_data(user_id)
+    if not eco or not eco.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
     parts = message.text.lower().split()[1:]
 
     bet_str = None
@@ -828,8 +860,8 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
         elif isinstance(bot_msg, CallbackQuery):
             await bot_msg.message.edit_text(txt)
 
-    if not eco:
-        return await send_error("❌ У вас нет счета. Зарегистрируйтесь в боте.")
+    if not eco or not eco.get("bs_tag"):
+        return await send_error("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
 
     bal = eco["balance"]
     bet = bal if bet_str == "all" else int(bet_str)
