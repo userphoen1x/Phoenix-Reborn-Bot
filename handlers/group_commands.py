@@ -785,20 +785,3 @@ async def sticker_anti_spam(message: Message, bot: Bot):
             asyncio.create_task(delete_later(msg))
         except:
             pass
-
-
-@router.message()
-async def message_counter(message: Message):
-    if message.from_user.is_bot: return
-    if message.text:
-        cmd_word = message.text.lower().strip().split()[0]
-        ignore_list = [
-            "топ", "top", "топ10", "top10", "мут", "mute", "анмут", "unmute", "размут",
-            "кик", "kick", "бан", "ban", "разбан", "unban", "слоты", "слот", "кости",
-            "дартс", "боулинг", "футбол", "баскетбол", "сапер", "блекджек", "баланс",
-            "кошелек", "счет", "понизить", "вернуть"
-        ]
-        if cmd_word not in ignore_list:
-            from utils.database import increment_message
-            name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
-            await increment_message(message.from_user.id, message.chat.id, name)

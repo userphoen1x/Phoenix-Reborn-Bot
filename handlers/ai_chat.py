@@ -1,13 +1,14 @@
 import os
 import random
 import logging
+import asyncio
 from groq import AsyncGroq
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
 from utils.database import get_eco_data, log_chat_message, get_chat_context, get_chat_mode, set_chat_mode, \
-    get_user_role_by_id
+    get_user_role_by_id, increment_message
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -16,6 +17,18 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 class AiModeCb(CallbackData, prefix="aimode"):
     mode: str
     uid: int
+
+
+_groq_client = None
+
+
+def get_groq_client():
+    global _groq_client
+    if _groq_client is None:
+        api_key = os.getenv("GROQ_API_KEY")
+        if api_key:
+            _groq_client = AsyncGroq(api_key=api_key)
+    return _groq_client
 
 
 AI_PROMPTS = {
@@ -41,13 +54,10 @@ AI_PROMPTS = {
 
 
 async def ask_groq(system_prompt: str, history: list, current_msg: str) -> str:
-    """Отправляет запрос через официальную библиотеку Groq"""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
+    client = get_groq_client()
+    if not client:
         logging.error("GROQ_API_KEY не найден в переменных окружения!")
         return "❌ Ошибка: В Railway не указан GROQ_API_KEY!"
-
-    client = AsyncGroq(api_key=api_key)
 
     messages = [{"role": "system", "content": system_prompt}]
     for user_id, full_name, text in history:
@@ -68,7 +78,7 @@ async def ask_groq(system_prompt: str, history: list, current_msg: str) -> str:
         return response.choices[0].message.content
     except Exception as e:
         logging.error(f"Ошибка Groq API: {e}")
-        return f"🤖 *потерял связь с сервером мысли... ({e})*"
+        return f"🤖 *устал и ушел в себя... ({e})*"
 
 
 @router.message(Command("характер"))
@@ -104,32 +114,26 @@ async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb):
 
 
 @router.message()
-async def ai_chat_handler(message: Message, bot: Bot):
+async def universal_chat_handler(message: Message, bot: Bot):
     if not message.text: return
     if message.from_user.is_bot: return
-
-    text_lower = message.text.lower().strip()
-
-    # Игнорируем команды
-    ignore_list = [
-        "топ", "top", "топ10", "top10", "мут", "mute", "анмут", "unmute", "размут",
-        "кик", "kick", "бан", "ban", "разбан", "unban", "слоты", "слот", "кости",
-        "дартс", "боулинг", "футбол", "баскетбол", "сапер", "сапёр", "блекджек", "блек-джек",
-        "баланс", "кошелек", "кошелёк", "счет", "счёт", "понизить", "вернуть", "работа", "ворк"
-    ]
-    if any(text_lower.startswith(cmd) or text_lower.startswith("/" + cmd) for cmd in ignore_list):
-        return
 
     user_id = message.from_user.id
     user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
-    # Пытаемся безопасно записать лог
-    try:
-        await log_chat_message(message.chat.id, user_id, user_name, message.text)
-    except Exception as e:
-        logging.error(f"Ошибка сохранения лога в БД: {e}")
+    # ПАРАЛЛЕЛЬНОЕ ВЫПОЛНЕНИЕ: И счетчик, и лог записываются в базу данных одновременно
+    db_write_results = await asyncio.gather(
+        increment_message(user_id, message.chat.id, user_name),
+        log_chat_message(message.chat.id, user_id, user_name, message.text),
+        return_exceptions=True
+    )
+    for res in db_write_results:
+        if isinstance(res, Exception):
+            logging.error(f"Ошибка фоновой записи в БД: {res}")
 
+    text_lower = message.text.lower().strip()
     bot_info = await bot.get_me()
+
     is_mentioned = f"@{bot_info.username.lower()}" in text_lower or bot_info.first_name.lower() in text_lower
 
     is_reply_to_bot = False
@@ -150,13 +154,15 @@ async def ai_chat_handler(message: Message, bot: Bot):
 
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-        try:
-            current_mode = await get_chat_mode(message.chat.id)
-            history = await get_chat_context(message.chat.id, limit=15)
-        except Exception as e:
-            logging.error(f"Ошибка получения истории/режима из БД: {e}")
-            current_mode = "default"
-            history = []
+        # ПАРАЛЛЕЛЬНОЕ ВЫПОЛНЕНИЕ: Извлекаем режим чата и историю одновременно
+        gather_results = await asyncio.gather(
+            get_chat_mode(message.chat.id),
+            get_chat_context(message.chat.id, limit=15),
+            return_exceptions=True
+        )
+
+        current_mode = gather_results[0] if not isinstance(gather_results[0], Exception) else "default"
+        history = gather_results[1] if not isinstance(gather_results[1], Exception) else []
 
         system_prompt = AI_PROMPTS.get(current_mode, AI_PROMPTS["default"])
 
