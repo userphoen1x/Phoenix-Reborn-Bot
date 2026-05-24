@@ -1,11 +1,11 @@
 import asyncio
 import logging
 import os
-import httpx
 from datetime import date, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from groq import AsyncGroq
 from utils.brawl_api import get_all_club_members, get_player_stats
 from utils.database import save_snapshot, get_all_users_for_roles, set_user_role, get_today_chat_logs, \
     clear_old_chat_logs
@@ -36,9 +36,8 @@ async def collect_daily_stats():
 
 
 async def run_archivist_summary(bot: Bot):
-    """Каждый вечер собирает логи чата и выдает сводку дня от имени Архивариуса"""
     logging.info("START ARCHIVIST DAILY SUMMARY")
-    target_chat = os.getenv("TARGET_CHAT_ID")  # ID группы прописывается в Railway переменные
+    target_chat = os.getenv("TARGET_CHAT_ID")
     api_key = os.getenv("GROQ_API_KEY")
 
     if not target_chat or not api_key:
@@ -62,34 +61,27 @@ async def run_archivist_summary(bot: Bot):
         "🗣 <b>ОСНОВНЫЕ ТЕМЫ ДНЯ</b>\n(3-5 тем с упоминанием зачинщиков через <b>имя</b>. Кратко, по 2-3 предложения.)"
     )
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Вот логи сегодняшнего общения:\n\n{logs_today}"}
-        ],
-        "temperature": 0.7
-    }
+    client = AsyncGroq(api_key=api_key)
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, headers=headers, timeout=30.0)
-            if response.status_code == 200:
-                summary_text = response.json()["choices"][0]["message"]["content"]
-                # Публикуем в главный чат
-                await bot.send_message(chat_id=int(target_chat), text=summary_text, parse_mode="HTML")
+        response = await client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Вот логи сегодняшнего общения:\n\n{logs_today}"}
+            ],
+            temperature=0.7
+        )
+        summary_text = response.choices[0].message.content
+        await bot.send_message(chat_id=int(target_chat), text=summary_text, parse_mode="HTML")
     except Exception as e:
         logging.error(f"Ошибка Архивариуса: {e}")
 
-    # Сразу очищаем логи старше 3 дней
     await clear_old_chat_logs()
     logging.info("END ARCHIVIST DAILY SUMMARY")
 
 
 async def check_roles(bot: Bot):
-    # Твоя ролевая функция остается без изменений
     members, _ = await get_all_club_members()
     api_roles = {}
     role_translation = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
@@ -148,7 +140,6 @@ async def check_roles(bot: Bot):
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
     scheduler.add_job(collect_daily_stats, 'cron', hour=4, minute=0)
-    # Архивариус делает отчет в 23:30 по МСК каждый день
     scheduler.add_job(run_archivist_summary, 'cron', hour=23, minute=30, args=[bot])
     scheduler.add_job(check_roles, 'interval', minutes=1, args=[bot])
     scheduler.start()
