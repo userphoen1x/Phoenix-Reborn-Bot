@@ -305,7 +305,6 @@ async def get_top_messages(days=None):
 async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
     if tags_filter is not None and len(tags_filter) == 0: return {}
 
-    # День логически начинается ровно в 00:00 (время фотки кубков)
     logical_today = datetime.now().date()
     td = (logical_today - timedelta(days=days - 1)).isoformat()
 
@@ -378,7 +377,6 @@ async def get_tag_to_tg_map():
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
 
 
-# ВОТ ЭТА ФУНКЦИЯ ПОТЕРЯЛАСЬ! ВЕРНУЛ НА МЕСТО
 async def unlink_user_tag(target_username: str) -> bool:
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
@@ -423,7 +421,6 @@ async def log_chat_message(chat_id: int, user_id: int, full_name: str, text: str
         await db.commit()
 
 async def get_chat_context(chat_id: int, limit: int = 15) -> list:
-    """Вытаскивает последние сообщения чата за 3 дня для контекста ИИ"""
     three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
@@ -431,11 +428,9 @@ async def get_chat_context(chat_id: int, limit: int = 15) -> list:
             (chat_id, three_days_ago, limit)
         ) as cursor:
             rows = await cursor.fetchall()
-            # Возвращаем в хронологическом порядке (от старых к новым)
             return rows[::-1]
 
 async def get_today_chat_logs(chat_id: int) -> str:
-    """Собирает все логи чата за текущие сутки для Архивариуса"""
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
@@ -446,21 +441,23 @@ async def get_today_chat_logs(chat_id: int) -> str:
             return "\n".join([f"{row[0]}: {row[1]}" for row in rows])
 
 async def get_chat_mode(chat_id: int) -> str:
-    """Получает текущий характер ИИ для чата"""
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute("SELECT mode FROM chat_modes WHERE chat_id = ?", (chat_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else "default"
 
 async def set_chat_mode(chat_id: int, mode: str):
-    """Сохраняет выбранный характер ИИ для чата"""
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("INSERT OR REPLACE INTO chat_modes (chat_id, mode) VALUES (?, ?)", (chat_id, mode))
         await db.commit()
 
 async def clear_old_chat_logs():
-    """Удаляет логи старше 3 дней, чтобы база не раздувалась"""
     three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM chat_logs WHERE msg_timestamp < ?", (three_days_ago,))
+        await db.commit()
+
+async def clear_chat_logs(chat_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        await db.execute("DELETE FROM chat_logs WHERE chat_id = ?", (chat_id,))
         await db.commit()
