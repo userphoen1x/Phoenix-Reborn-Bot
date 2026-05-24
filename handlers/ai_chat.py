@@ -1,6 +1,6 @@
 import os
 import random
-import asyncio
+import logging
 from groq import AsyncGroq
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -43,26 +43,31 @@ AI_PROMPTS = {
 async def ask_groq(system_prompt: str, history: list, current_msg: str) -> str:
     """Отправляет запрос через официальную библиотеку Groq"""
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key: return "❌ В Railway не указан GROQ_API_KEY!"
+    if not api_key:
+        logging.error("GROQ_API_KEY не найден в переменных окружения!")
+        return "❌ Ошибка: В Railway не указан GROQ_API_KEY!"
 
     client = AsyncGroq(api_key=api_key)
 
     messages = [{"role": "system", "content": system_prompt}]
     for user_id, full_name, text in history:
-        role = "assistant" if text.startswith("🤖") else "user"
+        role = "assistant" if str(text).startswith("🤖") else "user"
         messages.append({"role": role, "content": f"{full_name}: {text}"})
 
     messages.append({"role": "user", "content": current_msg})
 
     try:
+        logging.info("Отправляю запрос к Groq API...")
         response = await client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=messages,
             temperature=0.8,
             max_tokens=300
         )
+        logging.info("Успешный ответ от Groq получен.")
         return response.choices[0].message.content
     except Exception as e:
+        logging.error(f"Ошибка Groq API: {e}")
         return f"🤖 *потерял связь с сервером мысли... ({e})*"
 
 
@@ -105,6 +110,7 @@ async def ai_chat_handler(message: Message, bot: Bot):
 
     text_lower = message.text.lower().strip()
 
+    # Игнорируем команды
     ignore_list = [
         "топ", "top", "топ10", "top10", "мут", "mute", "анмут", "unmute", "размут",
         "кик", "kick", "бан", "ban", "разбан", "unban", "слоты", "слот", "кости",
@@ -116,7 +122,12 @@ async def ai_chat_handler(message: Message, bot: Bot):
 
     user_id = message.from_user.id
     user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
-    await log_chat_message(message.chat.id, user_id, user_name, message.text)
+
+    # Пытаемся безопасно записать лог
+    try:
+        await log_chat_message(message.chat.id, user_id, user_name, message.text)
+    except Exception as e:
+        logging.error(f"Ошибка сохранения лога в БД: {e}")
 
     bot_info = await bot.get_me()
     is_mentioned = f"@{bot_info.username.lower()}" in text_lower or bot_info.first_name.lower() in text_lower
@@ -128,6 +139,8 @@ async def ai_chat_handler(message: Message, bot: Bot):
     random_interject = random.random() < 0.05
 
     if is_mentioned or is_reply_to_bot or random_interject:
+        logging.info(f"Триггер ИИ сработал! Юзер: {user_name}, Текст: {message.text}")
+
         eco = await get_eco_data(user_id)
         if not eco or not eco.get("bs_tag"):
             if is_mentioned or is_reply_to_bot:
@@ -137,12 +150,22 @@ async def ai_chat_handler(message: Message, bot: Bot):
 
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-        current_mode = await get_chat_mode(message.chat.id)
+        try:
+            current_mode = await get_chat_mode(message.chat.id)
+            history = await get_chat_context(message.chat.id, limit=15)
+        except Exception as e:
+            logging.error(f"Ошибка получения истории/режима из БД: {e}")
+            current_mode = "default"
+            history = []
+
         system_prompt = AI_PROMPTS.get(current_mode, AI_PROMPTS["default"])
-        history = await get_chat_context(message.chat.id, limit=15)
 
         ai_response = await ask_groq(system_prompt, history, f"{user_name}: {message.text}")
         formatted_response = f"🤖 {ai_response}"
 
         await message.reply(formatted_response, parse_mode=None)
-        await log_chat_message(message.chat.id, bot_info.id, bot_info.first_name, formatted_response)
+
+        try:
+            await log_chat_message(message.chat.id, bot_info.id, bot_info.first_name, formatted_response)
+        except Exception as e:
+            logging.error(f"Ошибка сохранения ответа ИИ в БД: {e}")
