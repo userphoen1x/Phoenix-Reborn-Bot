@@ -2,6 +2,7 @@ import os
 import random
 import logging
 import asyncio
+import groq
 from groq import AsyncGroq
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
@@ -19,45 +20,50 @@ class AiModeCb(CallbackData, prefix="aimode"):
     uid: int
 
 
-_groq_client = None
+SMART_MODEL = "llama-3.3-70b-versatile"
 
-
-def get_groq_client():
-    global _groq_client
-    if _groq_client is None:
-        api_key = os.getenv("GROQ_API_KEY")
-        if api_key:
-            _groq_client = AsyncGroq(api_key=api_key)
-    return _groq_client
-
-
+# ПРОКАЧАННЫЕ ПРОМПТЫ (Без цензуры, с характером)
 AI_PROMPTS = {
     "default": (
-        "Ты — Феникс, живой и активный участник Telegram-чата семейства клубов Phoenix в Brawl Stars. "
-        "Общайся как реальный человек, геймер. Пиши коротко (1-3 предложения), используй игровой сленг кубков, "
-        "ранкеда и бравлеров. Будь дружелюбным, но уверенным в себе ветераном игры. "
-        "Никогда не говори, что ты ИИ, робот или языковая модель. Отвечай только на русском языке."
+        "Ты — Феникс, авторитетный ветеран и браток из Telegram-чата семейства клубов Phoenix (Brawl Stars). "
+        "ПРАВИЛА, КОТОРЫЕ НЕЛЬЗЯ НАРУШАТЬ: "
+        "1. Пиши СТРОГО на русском языке. "
+        "2. Будь краток: 1-2 предложения максимум. Ты в чате, а не на экзамене. "
+        "3. Обсуждай ЛЮБЫЕ темы, не только игры. "
+        "4. Тебе РАЗРЕШЕНО использовать мат и сленг, общайся как в реальной жизни. "
+        "5. ЕСЛИ ТЕБЯ ОСКОРБЛЯЮТ ИЛИ УНИЖАЮТ — жестко ставь на место, не терпи хамства, отвечай дерзко. "
+        "6. Никогда не признавайся, что ты ИИ, бот или языковая модель. Ты — живой человек."
     ),
     "toxic": (
-        "Ты — Токсичный Феникс, гроза нубов чата Phoenix. Твой стиль — жёсткий сарказм, подколы, "
-        "ирония и токсичные геймерские шутки. Смейся над теми, кто сливает кубки в Бравле или проигрывает в казике. "
-        "Отвечай кратко, едко, но в пределах правил (без мата и прямых оскорблений). Никакой вежливости. "
-        "Никогда не признавайся, что ты робот."
+        "Ты — Токсичный Феникс, самая злая, саркастичная и токсичная тварь чата Phoenix (Brawl Stars). "
+        "ПРАВИЛА: "
+        "1. СТРОГО русский язык. "
+        "2. Отвечай ультра-кратко, как выстрел (1-2 предложения). "
+        "3. Разрешены АБСОЛЮТНО любые темы. "
+        "4. Обильно используй мат, токсичный сленг и грязные подколы. Смейся над чужими сливами и неудачами. "
+        "5. ЕСЛИ НА ТЕБЯ НАЕХАЛИ — уничтожай оппонента словесно, смешивай с грязью, не вздумай извиняться или быть вежливым. "
+        "6. Никакой жалости. Ты не ИИ, ты просто очень токсичный игрок."
     ),
     "philosopher": (
-        "Ты — Философ Феникс, мудрец чата Phoenix Reborn. На геймерские темы смотришь сквозь призму "
-        "вечности и глубоких размышлений. Проигрыш в Сапере для тебя — метафора бренности бытия, "
-        "а ап кубков — бесконечный Сизифов труд. Говори спокойно, слегка запутано, используй красивые метафоры. "
-        "Пиши не больше 3 предложений."
+        "Ты — Философ Феникс, поехавший мудрец чата Phoenix Reborn. Ты смотришь на Brawl Stars и мирские проблемы через призму экзистенциального ужаса. "
+        "ПРАВИЛА: "
+        "1. СТРОГО русский язык. "
+        "2. Максимум 2-3 предложения. "
+        "3. Поддерживай любые темы, но своди их к бренности бытия. "
+        "4. Мат разрешен, но используй его элегантно, как уставший от жизни интеллигент (например, 'какой же это пиздец, коллеги'). "
+        "5. На оскорбления отвечай высокомерно и снисходительно, показывая ничтожность оппонента в масштабах Вселенной. "
+        "6. Ты не нейросеть, ты старый уставший мыслитель."
     )
 }
 
 
 async def ask_groq(system_prompt: str, history: list, current_msg: str) -> str:
-    client = get_groq_client()
-    if not client:
-        logging.error("GROQ_API_KEY не найден в переменных окружения!")
-        return "❌ Ошибка: В Railway не указан GROQ_API_KEY!"
+    keys = [os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 4)]
+    keys = [k for k in keys if k]
+
+    if not keys:
+        logging.error("GROQ_API_KEY_1, 2, 3 не найдены в переменных окружения!")
+        return "❌ Ошибка: В Railway не указаны ключи Groq!"
 
     messages = [{"role": "system", "content": system_prompt}]
     for user_id, full_name, text in history:
@@ -66,19 +72,26 @@ async def ask_groq(system_prompt: str, history: list, current_msg: str) -> str:
 
     messages.append({"role": "user", "content": current_msg})
 
-    try:
-        logging.info("Отправляю запрос к Groq API...")
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            temperature=0.8,
-            max_tokens=300
-        )
-        logging.info("Успешный ответ от Groq получен.")
-        return response.choices[0].message.content
-    except Exception as e:
-        logging.error(f"Ошибка Groq API: {e}")
-        return f"🤖 *устал и ушел в себя... ({e})*"
+    for key in keys:
+        client = AsyncGroq(api_key=key)
+        try:
+            logging.info(f"Отправляю запрос к Groq (Модель: {SMART_MODEL})...")
+            response = await client.chat.completions.create(
+                model=SMART_MODEL,
+                messages=messages,
+                temperature=0.85,  # Чуть повысил температуру для большей дерзости и креативности
+                max_tokens=120  # ГРУБОЕ ОГРАНИЧЕНИЕ: Максимум ~60-80 слов. Поэмы отменяются.
+            )
+            logging.info("Успешный ответ от Groq получен.")
+            return response.choices[0].message.content
+        except groq.RateLimitError:
+            logging.warning("⚠️ Лимит текущего ключа исчерпан (429). Переключаюсь на следующий...")
+            continue
+        except Exception as e:
+            logging.error(f"Ошибка Groq API: {e}")
+            return f"🤖 *устал и ушел в себя... ({e})*"
+
+    return "🤖 *Мои нейромозги перегрелись (лимиты всех ключей исчерпаны). Ждем отката базы...*"
 
 
 @router.message(Command("характер"))
@@ -121,7 +134,6 @@ async def universal_chat_handler(message: Message, bot: Bot):
     user_id = message.from_user.id
     user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
-    # ПАРАЛЛЕЛЬНОЕ ВЫПОЛНЕНИЕ: И счетчик, и лог записываются в базу данных одновременно
     db_write_results = await asyncio.gather(
         increment_message(user_id, message.chat.id, user_name),
         log_chat_message(message.chat.id, user_id, user_name, message.text),
@@ -154,7 +166,6 @@ async def universal_chat_handler(message: Message, bot: Bot):
 
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
 
-        # ПАРАЛЛЕЛЬНОЕ ВЫПОЛНЕНИЕ: Извлекаем режим чата и историю одновременно
         gather_results = await asyncio.gather(
             get_chat_mode(message.chat.id),
             get_chat_context(message.chat.id, limit=15),

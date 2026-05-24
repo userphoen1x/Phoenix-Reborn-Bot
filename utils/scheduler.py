@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import groq
 from datetime import date, datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
@@ -9,6 +10,8 @@ from groq import AsyncGroq
 from utils.brawl_api import get_all_club_members, get_player_stats
 from utils.database import save_snapshot, get_all_users_for_roles, set_user_role, get_today_chat_logs, \
     clear_old_chat_logs
+
+CHEAP_MODEL = "llama-3.1-8b-instant"
 
 
 async def collect_daily_stats():
@@ -38,10 +41,15 @@ async def collect_daily_stats():
 async def run_archivist_summary(bot: Bot):
     logging.info("START ARCHIVIST DAILY SUMMARY")
     target_chat = os.getenv("TARGET_CHAT_ID")
-    api_key = os.getenv("GROQ_API_KEY")
 
-    if not target_chat or not api_key:
-        logging.warning("Пропустил сводку Архивариуса: не задан TARGET_CHAT_ID или GROQ_API_KEY")
+    keys = [os.getenv(f"GROQ_API_KEY_{i}") for i in range(1, 4)]
+    keys = [k for k in keys if k]
+
+    if not target_chat:
+        logging.warning("Пропустил сводку: не задан TARGET_CHAT_ID")
+        return
+    if not keys:
+        logging.warning("Пропустил сводку: не заданы ключи GROQ_API_KEY")
         return
 
     logs_today = await get_today_chat_logs(int(target_chat))
@@ -61,21 +69,27 @@ async def run_archivist_summary(bot: Bot):
         "🗣 <b>ОСНОВНЫЕ ТЕМЫ ДНЯ</b>\n(3-5 тем с упоминанием зачинщиков через <b>имя</b>. Кратко, по 2-3 предложения.)"
     )
 
-    client = AsyncGroq(api_key=api_key)
-
-    try:
-        response = await client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Вот логи сегодняшнего общения:\n\n{logs_today}"}
-            ],
-            temperature=0.7
-        )
-        summary_text = response.choices[0].message.content
-        await bot.send_message(chat_id=int(target_chat), text=summary_text, parse_mode="HTML")
-    except Exception as e:
-        logging.error(f"Ошибка Архивариуса: {e}")
+    # Каскадная система: пробуем ключи по очереди для обработки логов
+    for key in keys:
+        client = AsyncGroq(api_key=key)
+        try:
+            response = await client.chat.completions.create(
+                model=CHEAP_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Вот логи сегодняшнего общения:\n\n{logs_today}"}
+                ],
+                temperature=0.7
+            )
+            summary_text = response.choices[0].message.content
+            await bot.send_message(chat_id=int(target_chat), text=summary_text, parse_mode="HTML")
+            break  # Успешно выполнили - выходим из цикла ключей
+        except groq.RateLimitError:
+            logging.warning("⚠️ Архивариус: Лимит ключа. Переключаюсь на следующий...")
+            continue
+        except Exception as e:
+            logging.error(f"Ошибка Архивариуса: {e}")
+            break
 
     await clear_old_chat_logs()
     logging.info("END ARCHIVIST DAILY SUMMARY")
