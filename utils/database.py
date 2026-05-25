@@ -173,8 +173,13 @@ async def upgrade_db_economy():
 
 async def add_user(user_id: int, bs_tag: str, player_name: str, club_name: str):
     async with aiosqlite.connect(DB_NAME) as db:
+        # ИСПРАВЛЕНИЕ 1: Удаляем этот тег у всех остальных (защита от "угона" и дубликатов)
+        await db.execute("DELETE FROM users WHERE bs_tag = ?", (bs_tag,))
+        # ИСПРАВЛЕНИЕ 2: Удаляем старую привязку этого пользователя, если он решил сменить аккаунт
+        await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+
         await db.execute(
-            "INSERT OR REPLACE INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)",
+            "INSERT INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)",
             (user_id, bs_tag, player_name, club_name))
         await db.execute("INSERT OR IGNORE INTO tg_profiles (user_id, full_name, balance) VALUES (?, ?, 1000)",
                          (user_id, player_name))
@@ -311,9 +316,9 @@ async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
     query = """
             SELECT tag, trophies
             FROM bs_snapshots s1
-            WHERE record_date = (SELECT MIN(record_date) \
-                                 FROM bs_snapshots s2 \
-                                 WHERE s2.tag = s1.tag \
+            WHERE record_date = (SELECT MIN(record_date)
+                                 FROM bs_snapshots s2
+                                 WHERE s2.tag = s1.tag
                                    AND s2.record_date >= ?) \
             """
     params = [td]
@@ -329,8 +334,6 @@ async def get_baseline_trophies(days: int, tags_filter: list = None) -> dict:
 
 
 async def get_top_gain(column: str, days: int, tags_filter: list = None):
-    # Эта функция больше не нужна, так как мы считаем рост напрямую из игры,
-    # но оставляем для совместимости со старыми вызовами.
     pass
 
 
@@ -385,7 +388,11 @@ async def unlink_user_tag(target_username: str) -> bool:
             if not row:
                 return False
             user_id = row[0]
-            await db.execute("DELETE FROM tg_profiles WHERE user_id = ?", (user_id,))
+
+            # ИСПРАВЛЕНИЕ: Удаляем привязку игрового тега (из users), а не профиль TG (tg_profiles)!
+            await db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+            # Сбрасываем роль в боте до "Гостя"
+            await db.execute("UPDATE tg_profiles SET game_role = 'Гость' WHERE user_id = ?", (user_id,))
             await db.commit()
             return True
 
@@ -411,8 +418,22 @@ async def get_all_users_for_roles():
                 {"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]}
                 for r in rows]
 
+
+# НОВАЯ ФУНКЦИЯ ДЛЯ ВЫВОДА СПИСКА РЕГИСТРАЦИЙ
+async def get_all_registered_users():
+    async with aiosqlite.connect(DB_NAME) as db:
+        query = """
+                SELECT t.full_name, u.bs_tag, u.player_name
+                FROM users u
+                         JOIN tg_profiles t ON u.user_id = t.user_id
+                WHERE u.is_approved = 1
+                ORDER BY u.player_name
+                """
+        async with db.execute(query) as cursor:
+            return await cursor.fetchall()
+
+
 async def log_chat_message(chat_id: int, user_id: int, full_name: str, text: str):
-    """Записывает сообщение в лог для памяти ИИ и Архивариуса"""
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute(
             "INSERT INTO chat_logs (chat_id, user_id, full_name, text, msg_timestamp) VALUES (?, ?, ?, ?, ?)",
@@ -420,25 +441,28 @@ async def log_chat_message(chat_id: int, user_id: int, full_name: str, text: str
         )
         await db.commit()
 
+
 async def get_chat_context(chat_id: int, limit: int = 15) -> list:
     three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
-            "SELECT user_id, full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp DESC LIMIT ?",
-            (chat_id, three_days_ago, limit)
+                "SELECT user_id, full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp DESC LIMIT ?",
+                (chat_id, three_days_ago, limit)
         ) as cursor:
             rows = await cursor.fetchall()
             return rows[::-1]
+
 
 async def get_today_chat_logs(chat_id: int) -> str:
     today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute(
-            "SELECT full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp ASC",
-            (chat_id, today_start)
+                "SELECT full_name, text FROM chat_logs WHERE chat_id = ? AND msg_timestamp >= ? ORDER BY msg_timestamp ASC",
+                (chat_id, today_start)
         ) as cursor:
             rows = await cursor.fetchall()
             return "\n".join([f"{row[0]}: {row[1]}" for row in rows])
+
 
 async def get_chat_mode(chat_id: int) -> str:
     async with aiosqlite.connect(DB_NAME) as db:
@@ -446,16 +470,19 @@ async def get_chat_mode(chat_id: int) -> str:
             row = await cursor.fetchone()
             return row[0] if row else "default"
 
+
 async def set_chat_mode(chat_id: int, mode: str):
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("INSERT OR REPLACE INTO chat_modes (chat_id, mode) VALUES (?, ?)", (chat_id, mode))
         await db.commit()
+
 
 async def clear_old_chat_logs():
     three_days_ago = (datetime.now() - timedelta(days=3)).isoformat()
     async with aiosqlite.connect(DB_NAME) as db:
         await db.execute("DELETE FROM chat_logs WHERE msg_timestamp < ?", (three_days_ago,))
         await db.commit()
+
 
 async def clear_chat_logs(chat_id: int):
     async with aiosqlite.connect(DB_NAME) as db:

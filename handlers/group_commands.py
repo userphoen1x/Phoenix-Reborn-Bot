@@ -10,7 +10,7 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from aiogram.filters.callback_data import CallbackData
 from utils.brawl_api import get_all_club_members, CLAN_TAGS, get_live_club_detailed_stats, get_clan_names
 from utils.database import get_top_messages, get_baseline_trophies, get_top_absolute, get_tag_to_tg_map, \
-    get_user_role_by_id, get_top_balance, set_user_role, ROLE_SYMBOLS, DB_NAME
+    get_user_role_by_id, get_top_balance, set_user_role, ROLE_SYMBOLS, DB_NAME, get_all_registered_users
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -59,7 +59,6 @@ def make_link(display_name: str, tg_name: str, tg_id: int) -> str:
     return f"<b>{display_name}</b>"
 
 
-# 🚀 ХЕЛПЕР: ПАРАЛЛЕЛЬНЫЙ СБОР РОЛЕЙ ДЛЯ ТОПОВ
 async def get_roles_bulk(uids: list):
     async def safe_get(uid):
         if not uid: return "Гость"
@@ -142,6 +141,38 @@ async def admin_force_scan(message: Message):
     await collect_daily_stats()
     sent_msg2 = await message.answer("✅ Готово")
     asyncio.create_task(delete_later(sent_msg2, 60))
+
+
+# 🚀 НОВАЯ КОМАНДА: Вывод списка зарегистрированных
+@router.message(Command("all_reg_list"))
+async def cmd_all_reg_list(message: Message):
+    admin_role = await get_user_role_by_id(message.from_user.id)
+    if admin_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]:
+        return
+
+    users = await get_all_registered_users()
+
+    if not users:
+        sent = await message.answer("📭 Список зарегистрированных пользователей пуст.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
+    lines = ["📋 <b>Список зарегистрированных игроков:</b>\n"]
+    for i, (tg_name, tag, player_name) in enumerate(users, 1):
+        name_str = tg_name if tg_name.startswith("@") else f"<b>{tg_name}</b>"
+        lines.append(f"{i}. {name_str} привязан к тегу {tag} ({player_name})")
+
+    # Телеграм не дает отправить больше 4096 символов, поэтому разбиваем на части
+    text = "\n".join(lines)
+    for x in range(0, len(text), 4000):
+        sent = await message.answer(text[x:x + 4000], parse_mode="HTML",
+                                    link_preview_options=LinkPreviewOptions(is_disabled=True))
+        asyncio.create_task(delete_later(sent, 10800))
+
+    try:
+        await message.delete()
+    except:
+        pass
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["понизить", "демоут"]))
@@ -278,7 +309,6 @@ async def cmd_top_trigger(message: Message):
 
         tg_map = await get_tag_to_tg_map()
 
-        # 🚀 ПАРАЛЛЕЛЬНО: собираем роли всех 10 игроков одним залпом
         uids = [tg_map.get(tag_str, {}).get("id") for _, _, tag_str in results]
         roles = await get_roles_bulk(uids)
 
@@ -322,7 +352,6 @@ async def cmd_top_trigger(message: Message):
         if c != "ALL": return
         data = await get_top_balance(10)
 
-        # 🚀 ПАРАЛЛЕЛЬНО: собираем роли всех 10 игроков одним залпом
         uids = [t_uid for _, _, _, t_uid in data]
         roles = await get_roles_bulk(uids)
 
@@ -353,7 +382,6 @@ async def cmd_top_trigger(message: Message):
             tg_map = await get_tag_to_tg_map()
             top_10 = members[:10]
 
-            # 🚀 ПАРАЛЛЕЛЬНО: собираем роли
             uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
             roles = await get_roles_bulk(uids)
 
@@ -379,7 +407,6 @@ async def cmd_top_trigger(message: Message):
             members.sort(key=sort_key, reverse=True)
             top_10 = members[:10]
 
-            # 🚀 ПАРАЛЛЕЛЬНО: собираем роли
             uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
             roles = await get_roles_bulk(uids)
 
@@ -716,7 +743,6 @@ async def cmd_moderation(message: Message, bot: Bot):
 
     admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
-    # ПАРАЛЛЕЛЬНО получаем роли модератора и цели
     roles = await get_roles_bulk([message.from_user.id, target_id])
     a_role, t_role = roles[0], roles[1]
 
