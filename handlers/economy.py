@@ -15,7 +15,6 @@ LAST_GAME_MSGS = {}
 
 
 def is_cmd(text: str, cmds: list) -> bool:
-    """Проверяет, является ли первое слово точной командой (защита от 'переводчик')"""
     if not text: return False
     t = text.lower().strip()
     return any(t == c or t.startswith(c + " ") for c in cmds)
@@ -98,8 +97,13 @@ async def cmd_work(message: Message):
             return
 
     reward = random.randint(50, 150)
-    await update_balance(user_id, reward)
-    await set_eco_data(user_id, "last_work", now.isoformat())
+
+    # 🚀 ПАРАЛЛЕЛЬНАЯ ЗАПИСЬ В БД: Начисление денег и обновление таймера работы одновременно
+    await asyncio.gather(
+        update_balance(user_id, reward),
+        set_eco_data(user_id, "last_work", now.isoformat())
+    )
+
     sent_msg = await message.answer(f"✅ <b>УСПЕШНО!</b>\n🔥 Вы поработали и заработали <b>{reward}</b> ₣!",
                                     parse_mode="HTML")
     asyncio.create_task(delete_later(sent_msg))
@@ -108,12 +112,6 @@ async def cmd_work(message: Message):
 @router.message(lambda msg: is_cmd(msg.text, ["перевод", "перевести", "pay", "/pay"]))
 async def cmd_pay(message: Message, bot: Bot):
     user_id = message.from_user.id
-    eco_sender = await get_eco_data(user_id)
-    if not eco_sender or not eco_sender.get("bs_tag"):
-        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
-        asyncio.create_task(delete_later(sent, 60))
-        return
-
     parts = message.text.split()
     if len(parts) < 3:
         sent = await message.answer("❌ Укажите пользователя и сумму. Пример: <code>перевод @username 100</code>",
@@ -160,19 +158,37 @@ async def cmd_pay(message: Message, bot: Bot):
         asyncio.create_task(delete_later(sent_msg))
         return
 
+    # 🚀 ПАРАЛЛЕЛЬНОЕ ЧТЕНИЕ: Запрашиваем балансы сразу обоих игроков
+    eco_results = await asyncio.gather(
+        get_eco_data(user_id),
+        get_eco_data(target_id),
+        return_exceptions=True
+    )
+
+    eco_sender = eco_results[0] if not isinstance(eco_results[0], Exception) else None
+    eco_target = eco_results[1] if not isinstance(eco_results[1], Exception) else None
+
+    if not eco_sender or not eco_sender.get("bs_tag"):
+        sent = await message.answer("❌ Вы не зарегистрированы! Отправьте свой тег боту.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
     if eco_sender["balance"] < amount:
         sent_msg = await message.answer("❌ Недостаточно средств.")
         asyncio.create_task(delete_later(sent_msg))
         return
 
-    eco_target = await get_eco_data(target_id)
     if not eco_target or not eco_target.get("bs_tag"):
         sent_msg = await message.answer("❌ Этот пользователь еще не зарегистрирован.")
         asyncio.create_task(delete_later(sent_msg))
         return
 
-    await update_balance(user_id, -amount)
-    await update_balance(target_id, amount)
+    # 🚀 ПАРАЛЛЕЛЬНАЯ ЗАПИСЬ: Списание и начисление проходят одновременно
+    await asyncio.gather(
+        update_balance(user_id, -amount),
+        update_balance(target_id, amount)
+    )
+
     sent_msg = await message.answer(
         f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣", parse_mode="HTML")
     asyncio.create_task(delete_later(sent_msg))
@@ -247,7 +263,6 @@ async def run_emoji_game(target, user_id: int, game: str, bet: int, guess: int =
         except:
             pass
 
-    # Списываем ставку до броска кубика (решение проблемы ва-банка)
     await update_balance(user_id, -bet)
 
     emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}

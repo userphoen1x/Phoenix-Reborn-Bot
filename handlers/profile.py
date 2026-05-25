@@ -50,8 +50,17 @@ async def cmd_profile(message: Message):
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
 
-    db_user = await get_user_data(target_id)
-    eco_data = await get_eco_data(target_id)
+    # 🚀 ПАРАЛЛЕЛЬНЫЙ ЗАПРОС К БД: Вытягиваем 3 независимые таблицы одновременно
+    db_results = await asyncio.gather(
+        get_user_data(target_id),
+        get_eco_data(target_id),
+        get_user_role_by_id(target_id),
+        return_exceptions=True
+    )
+
+    db_user = db_results[0] if not isinstance(db_results[0], Exception) else None
+    eco_data = db_results[1] if not isinstance(db_results[1], Exception) else None
+    role = db_results[2] if not isinstance(db_results[2], Exception) else "Гость"
 
     if not db_user or not eco_data:
         sent = await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
@@ -63,7 +72,6 @@ async def cmd_profile(message: Message):
         return
 
     player_name, _, _, tg_full_name = db_user
-    role = await get_user_role_by_id(target_id)
     sym = ROLE_SYMBOLS.get(role, "○")
 
     if tg_full_name and tg_full_name.startswith("@"):
@@ -72,20 +80,30 @@ async def cmd_profile(message: Message):
         name_link = f"<b>{player_name}</b>"
 
     bs_tag = eco_data.get('bs_tag', '')
-    stats = await get_player_stats(bs_tag) if bs_tag else None
 
-    if stats:
-        trophies = stats['trophies']
+    if bs_tag:
+        # 🚀 ПАРАЛЛЕЛЬНЫЙ ЗАПРОС: API игры и Снимок кубков из БД одновременно
+        api_db_results = await asyncio.gather(
+            get_player_stats(bs_tag),
+            get_baseline_trophies(1, [bs_tag]),
+            return_exceptions=True
+        )
+        stats = api_db_results[0] if not isinstance(api_db_results[0], Exception) else None
+        baseline_map = api_db_results[1] if not isinstance(api_db_results[1], Exception) else {}
 
-        baseline_map = await get_baseline_trophies(1, [bs_tag])
-        baseline = baseline_map.get(bs_tag, trophies)
-        gain = trophies - baseline
-        gain_str = f"+{gain}" if gain > 0 else str(gain)
+        if stats:
+            trophies = stats['trophies']
+            baseline = baseline_map.get(bs_tag, trophies)
+            gain = trophies - baseline
+            gain_str = f"+{gain}" if gain > 0 else str(gain)
 
-        wins3v3 = stats['wins_3v3']
-        sd_wins = stats['solo_wins'] + stats['duo_wins']
-        rank_name = get_rank_name(stats.get('ranked_curr_rank', 0))
-        rank_elo = stats.get('ranked_curr_elo', 0)
+            wins3v3 = stats['wins_3v3']
+            sd_wins = stats['solo_wins'] + stats['duo_wins']
+            rank_name = get_rank_name(stats.get('ranked_curr_rank', 0))
+            rank_elo = stats.get('ranked_curr_elo', 0)
+        else:
+            gain_str = "???"
+            trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
     else:
         gain_str = "???"
         trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"

@@ -26,7 +26,6 @@ sticker_spam_cache = {}
 
 
 def is_cmd(text: str, cmds: list) -> bool:
-    """Проверяет, является ли первое слово точной командой"""
     if not text: return False
     t = text.lower().strip()
     return any(t == c or t.startswith(c + " ") for c in cmds)
@@ -58,6 +57,19 @@ def make_link(display_name: str, tg_name: str, tg_id: int) -> str:
     if tg_name and tg_name.startswith("@"):
         return f"<a href='https://t.me/{tg_name[1:]}'>{display_name}</a>"
     return f"<b>{display_name}</b>"
+
+
+# 🚀 ХЕЛПЕР: ПАРАЛЛЕЛЬНЫЙ СБОР РОЛЕЙ ДЛЯ ТОПОВ
+async def get_roles_bulk(uids: list):
+    async def safe_get(uid):
+        if not uid: return "Гость"
+        try:
+            res = await get_user_role_by_id(uid)
+            return res if res else "Гость"
+        except:
+            return "Гость"
+
+    return await asyncio.gather(*(safe_get(uid) for uid in uids))
 
 
 async def kb_choose_club(uid: int):
@@ -174,7 +186,7 @@ async def cmd_restore_rank(message: Message):
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
-    elif len(parts) > 2 and parts[-1].startswith("@"):  # "вернуть звание @username"
+    elif len(parts) > 2 and parts[-1].startswith("@"):
         target_username = parts[-1]
         async with aiosqlite.connect(DB_NAME) as db:
             async with db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE",
@@ -266,12 +278,16 @@ async def cmd_top_trigger(message: Message):
 
         tg_map = await get_tag_to_tg_map()
 
+        # 🚀 ПАРАЛЛЕЛЬНО: собираем роли всех 10 игроков одним залпом
+        uids = [tg_map.get(tag_str, {}).get("id") for _, _, tag_str in results]
+        roles = await get_roles_bulk(uids)
+
         txt = f"🏆 <b>Топ пушеров ({push_title})</b>\n\n"
         for i, (n, v, tag_str) in enumerate(results):
             tg_data = tg_map.get(tag_str)
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
-            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(n, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -305,10 +321,15 @@ async def cmd_top_trigger(message: Message):
     elif args_str in eco_triggers or "top phoenix" in text:
         if c != "ALL": return
         data = await get_top_balance(10)
+
+        # 🚀 ПАРАЛЛЕЛЬНО: собираем роли всех 10 игроков одним залпом
+        uids = [t_uid for _, _, _, t_uid in data]
+        roles = await get_roles_bulk(uids)
+
         txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
         for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -330,12 +351,18 @@ async def cmd_top_trigger(message: Message):
         else:
             members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
             tg_map = await get_tag_to_tg_map()
+            top_10 = members[:10]
+
+            # 🚀 ПАРАЛЛЕЛЬНО: собираем роли
+            uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
+            roles = await get_roles_bulk(uids)
+
             res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
-            for i, m in enumerate(members[:10]):
+            for i, m in enumerate(top_10):
                 tg_data = tg_map.get(m["tag"])
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
-                u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+                u_role = roles[i]
                 sym = ROLE_SYMBOLS.get(u_role, "👻")
                 name_link = make_link(m['name'], tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -350,12 +377,18 @@ async def cmd_top_trigger(message: Message):
         else:
             sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0))
             members.sort(key=sort_key, reverse=True)
+            top_10 = members[:10]
+
+            # 🚀 ПАРАЛЛЕЛЬНО: собираем роли
+            uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
+            roles = await get_roles_bulk(uids)
+
             txt = f"🎖 <b>Ранкед</b>\n\n"
-            for i, m in enumerate(members[:10]):
+            for i, m in enumerate(top_10):
                 tg_data = tg_map.get(m["tag"])
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
-                u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+                u_role = roles[i]
                 sym = ROLE_SYMBOLS.get(u_role, "👻")
                 r_val = m.get("ranked_curr_rank", 0)
                 e_val = m.get("ranked_curr_elo", 0)
@@ -399,10 +432,14 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
         await callback.message.edit_text("⏳ Собираю данные...",
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
         data = await get_top_balance(10)
+
+        uids = [t_uid for _, _, _, t_uid in data]
+        roles = await get_roles_bulk(uids)
+
         txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
         for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -427,12 +464,17 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             return
         members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
         tg_map = await get_tag_to_tg_map()
+        top_10 = members[:10]
+
+        uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
+        roles = await get_roles_bulk(uids)
+
         res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
-        for i, m in enumerate(members[:10]):
+        for i, m in enumerate(top_10):
             tg_data = tg_map.get(m["tag"])
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
-            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(m['name'], tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -474,12 +516,17 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
             title = "👥 Дуо"
 
         members.sort(key=sort_key, reverse=True)
+        top_10 = members[:10]
+
+        uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
+        roles = await get_roles_bulk(uids)
+
         txt = f"<b>{title}</b>\n\n"
-        for i, m in enumerate(members[:10]):
+        for i, m in enumerate(top_10):
             tg_data = tg_map.get(m["tag"])
             t_uid = tg_data["id"] if tg_data else None
             tg_name = tg_data["name"] if tg_data else None
-            u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(m['name'], tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -499,10 +546,14 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                                          link_preview_options=LinkPreviewOptions(is_disabled=True))
         d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
         data = await get_top_messages(d)
+
+        uids = [t_uid for _, _, _, t_uid in data]
+        roles = await get_roles_bulk(uids)
+
         txt = "💬 <b>Топ сообщений чата</b>\n\n"
         for i, (tg_name, player_name, v, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-            u_role = await get_user_role_by_id(t_uid)
+            u_role = roles[i]
             sym = ROLE_SYMBOLS.get(u_role, "👻")
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
@@ -536,21 +587,25 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb):
                     results.append((m["name"], gain, tag))
 
             results.sort(key=lambda x: x[1], reverse=True)
-            results = results[:10]
+            top_10 = results[:10]
 
             tg_map = await get_tag_to_tg_map()
+
+            uids = [tg_map.get(tag_str, {}).get("id") for _, _, tag_str in top_10]
+            roles = await get_roles_bulk(uids)
+
             txt = "📈 <b>Рост кубков</b>\n\n"
-            for i, (n, v, tag_str) in enumerate(results):
+            for i, (n, v, tag_str) in enumerate(top_10):
                 tg_data = tg_map.get(tag_str)
                 t_uid = tg_data["id"] if tg_data else None
                 tg_name = tg_data["name"] if tg_data else None
-                u_role = await get_user_role_by_id(t_uid) if t_uid else "Гость"
+                u_role = roles[i]
                 sym = ROLE_SYMBOLS.get(u_role, "👻")
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
 
-            if not results:
+            if not top_10:
                 txt += "📭 Пока нет данных для расчета."
 
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c),
@@ -571,8 +626,7 @@ async def cmd_moderation(message: Message, bot: Bot):
         return
 
     parts = message.text.split()
-    if not parts:
-        return
+    if not parts: return
 
     cmd = parts[0].lower()
     target_id = None
@@ -606,7 +660,6 @@ async def cmd_moderation(message: Message, bot: Bot):
     if cmd in ["мут", "mute", "бан", "ban"]:
         if idx < len(parts):
             first_word = parts[idx].lower()
-
             standalone = {
                 "минута": (1, "minutes", "1 минуту"), "минуту": (1, "minutes", "1 минуту"),
                 "минуты": (1, "minutes", "1 минуту"),
@@ -619,13 +672,9 @@ async def cmd_moderation(message: Message, bot: Bot):
                 "год": (365, "days", "1 год"), "года": (365, "days", "1 год"),
                 "навсегда": (None, None, "навсегда"), "пермач": (None, None, "навсегда")
             }
-
             if first_word in standalone:
                 val, unit_type, time_str = standalone[first_word]
-                if val is not None:
-                    dt = timedelta(**{unit_type: val})
-                else:
-                    dt = None
+                dt = timedelta(**{unit_type: val}) if val is not None else None
                 idx += 1
             elif first_word.isdigit():
                 val = int(first_word)
@@ -647,7 +696,6 @@ async def cmd_moderation(message: Message, bot: Bot):
                         dt = timedelta(days=val * 365); time_str = f"{val} лет"
                     else:
                         matched_unit = False
-
                     if matched_unit:
                         idx += 1
                     else:
@@ -659,18 +707,19 @@ async def cmd_moderation(message: Message, bot: Bot):
 
     if not time_str:
         if cmd in ["мут", "mute"]:
-            time_str = "10 минут"
-            dt = timedelta(minutes=10)
+            time_str = "10 минут"; dt = timedelta(minutes=10)
         elif cmd in ["бан", "ban"]:
-            time_str = "навсегда"
-            dt = None
+            time_str = "навсегда"; dt = None
 
     reason_parts = parts[idx:]
     reason = " ".join(reason_parts) if reason_parts else "Не указана"
 
     admin_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
 
-    t_role = await get_user_role_by_id(target_id)
+    # ПАРАЛЛЕЛЬНО получаем роли модератора и цели
+    roles = await get_roles_bulk([message.from_user.id, target_id])
+    a_role, t_role = roles[0], roles[1]
+
     a_sym = ROLE_SYMBOLS.get(a_role, "👻")
     t_sym = ROLE_SYMBOLS.get(t_role, "👻")
 
@@ -752,7 +801,6 @@ async def sticker_anti_spam(message: Message, bot: Bot):
         sticker_spam_cache[user_id] = []
 
     sticker_spam_cache[user_id] = [(t, mid) for t, mid in sticker_spam_cache[user_id] if now - t <= 60.0]
-
     sticker_spam_cache[user_id].append((now, msg_id))
 
     recent_count = sum(1 for t, mid in sticker_spam_cache[user_id] if now - t <= 1.0)
