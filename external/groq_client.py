@@ -15,11 +15,11 @@ class GroqClient:
     def _get_client(self) -> Groq | None:
         keys = settings.GROQ_KEYS
         if not keys: return None
-        return Groq(api_key=keys[self._key_index])[cite: 7]
+        return Groq(api_key=keys[self._key_index])
 
     def _rotate_key(self):
         keys = settings.GROQ_KEYS
-        if keys: self._key_index = (self._key_index + 1) % len(keys)[cite: 7]
+        if keys: self._key_index = (self._key_index + 1) % len(keys)
 
     def ask(self, messages: list, max_tokens: int = 150) -> str:
         keys = settings.GROQ_KEYS
@@ -28,7 +28,7 @@ class GroqClient:
             for _ in range(len(keys)):
                 try:
                     client = self._get_client()
-                    res = client.chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, temperature=0.85)[cite: 7]
+                    res = client.chat.completions.create(model=model, messages=messages, max_tokens=max_tokens, temperature=0.85)
                     return res.choices[0].message.content
                 except Exception as e:
                     logging.warning(e)
@@ -41,7 +41,7 @@ class GroqClient:
         for _ in range(len(keys)):
             try:
                 client = self._get_client()
-                res = client.chat.completions.create(model=self.vision_model, messages=messages, max_tokens=max_tokens, temperature=0.85)[cite: 7]
+                res = client.chat.completions.create(model=self.vision_model, messages=messages, max_tokens=max_tokens, temperature=0.85)
                 return res.choices[0].message.content
             except Exception as e:
                 logging.warning(e)
@@ -54,8 +54,7 @@ class GroqClient:
         for _ in range(len(keys)):
             try:
                 client = self._get_client()
-                # Добавлен кодек opus для корректной работы Whisper
-                transcription = client.audio.transcriptions.create(file=(filename, audio_bytes, "audio/ogg; codecs=opus"), model=self.whisper_model, language="ru", response_format="text")[cite: 7]
+                transcription = client.audio.transcriptions.create(file=(filename, audio_bytes, "audio/ogg; codecs=opus"), model=self.whisper_model, language="ru", response_format="text")
                 return transcription.strip()
             except Exception as e:
                 logging.warning(e)
@@ -69,7 +68,7 @@ class GroqClient:
         for _ in range(len(keys)):
             try:
                 client = self._get_client()
-                response = client.audio.speech.create(model=self.tts_model, voice=self.tts_voice, input=tts_text, response_format="wav")[cite: 7]
+                response = client.audio.speech.create(model=self.tts_model, voice=self.tts_voice, input=tts_text, response_format="wav")
                 return response.read()
             except Exception as e:
                 logging.warning(e)

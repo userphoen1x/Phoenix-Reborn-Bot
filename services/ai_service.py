@@ -15,13 +15,12 @@ class AiService:
 
     async def generate_response(self, chat_id: int, user_name: str, current_msg: str, bot_id: int, history: list, media_data: tuple = None) -> str:
         mode = await self.chat_repo.get_chat_mode(chat_id)
-        system_prompt = self.prompts.get(mode, self.prompts["default"]) + "\n\nИнструкция: Перед тобой история последних сообщений. Отвечай ТОЛЬКО на самое последнее сообщение. Не пиши своё имя или никнейм перед ответом — просто пиши текст."[cite: 6]
+        system_prompt = self.prompts.get(mode, self.prompts["default"]) + "\n\nИнструкция: Перед тобой история последних сообщений. Отвечай ТОЛЬКО на самое последнее сообщение. Не пиши своё имя или никнейм перед ответом — просто пиши текст."
 
         if media_data:
             data, m_type, caption = media_data
             if m_type == "photo":
-                # Обновленная структура для Vision-модели
-                vision_system = system_prompt + f"\n\nТебе прислали картинку. Опиши что видишь и отреагируй в своём стиле. Подпись к картинке: «{caption}»" if caption else system_prompt + "\n\nТебе прислали картинку без подписи. Опиши что видишь и отреагируй в своём стиле."[cite: 6]
+                vision_system = system_prompt + f"\n\nТебе прислали картинку. Опиши что видишь и отреагируй в своём стиле. Подпись к картинке: «{caption}»" if caption else system_prompt + "\n\nТебе прислали картинку без подписи. Опиши что видишь и отреагируй в своём стиле."
                 messages = [
                     {
                         "role": "user",
@@ -31,8 +30,8 @@ class AiService:
                             {"type": "text", "text": f"--- ТЕКУЩИЙ ЗАПРОС: {caption if caption else 'что на этой картинке?'} ---"}
                         ]
                     }
-                ][cite: 6]
-                raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask_vision, messages)[cite: 6]
+                ]
+                raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask_vision, messages)
                 return re.sub(r"^[^:：]{1,30}[:：]\s*", "", raw_response, flags=re.IGNORECASE).strip()
 
             elif m_type in ("voice", "video_note", "video"):
@@ -42,23 +41,23 @@ class AiService:
                 for i, (uid, full_name, text) in enumerate(history):
                     role_str = "assistant" if uid == bot_id else "user"
                     messages_for_ai.append({"role": role_str, "content": f"{full_name}: {text}"})
-                messages_for_ai.append({"role": "user", "content": f"--- {user_name} прислал {label}, вот транскрипт: {data} ---"})[cite: 6]
-                raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask, messages_for_ai)[cite: 6]
+                messages_for_ai.append({"role": "user", "content": f"--- {user_name} прислал {label}, вот транскрипт: {data} ---"})
+                raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask, messages_for_ai)
                 return re.sub(r"^[^:：]{1,30}[:：]\s*", "", raw_response, flags=re.IGNORECASE).strip()
 
         messages_for_ai = [{"role": "system", "content": system_prompt}]
         for i, (uid, full_name, text) in enumerate(history):
             role_str = "assistant" if uid == bot_id else "user"
             content = f"--- ТЕКУЩИЙ ЗАПРОС ОТ {full_name}: {text} ---" if i == len(history) - 1 else f"{full_name}: {text}"
-            messages_for_ai.append({"role": role_str, "content": content})[cite: 6]
+            messages_for_ai.append({"role": role_str, "content": content})
         if not history or history[-1][2] != current_msg:
-            messages_for_ai.append({"role": "user", "content": f"--- ТЕКУЩИЙ ЗАПРОС ОТ {user_name}: {current_msg} ---"})[cite: 6]
+            messages_for_ai.append({"role": "user", "content": f"--- ТЕКУЩИЙ ЗАПРОС ОТ {user_name}: {current_msg} ---"})
 
-        raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask, messages_for_ai)[cite: 6]
+        raw_response = await asyncio.get_running_loop().run_in_executor(None, self.groq_client.ask, messages_for_ai)
         return re.sub(r"^[^:：]{1,30}[:：]\s*", "", raw_response, flags=re.IGNORECASE).strip()
 
     async def transcribe_audio(self, audio_bytes: bytes, filename: str) -> str:
-        return await asyncio.get_running_loop().run_in_executor(None, self.groq_client.transcribe_audio, audio_bytes, filename)[cite: 6]
+        return await asyncio.get_running_loop().run_in_executor(None, self.groq_client.transcribe_audio, audio_bytes, filename)
 
     async def generate_voice(self, text: str) -> bytes | None:
-        return await asyncio.get_running_loop().run_in_executor(None, self.groq_client.generate_speech, text)[cite: 6]
+        return await asyncio.get_running_loop().run_in_executor(None, self.groq_client.generate_speech, text)
