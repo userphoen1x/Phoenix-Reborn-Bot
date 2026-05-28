@@ -11,6 +11,29 @@ class BrawlAPIClient:
     def headers(self):
         return {"Authorization": f"Bearer {settings.BS_API_KEY}"}
 
+    async def check_api_connection(self) -> tuple[bool, str]:
+
+        if not settings.BS_API_KEY:
+            return False, "Ключ не установлен."
+        if not settings.CLAN_TAGS:
+            return False, "Не настроены теги кланов."
+
+        tag = settings.CLAN_TAGS[0].replace("#", "")
+        url = f"https://api.brawlstars.com/v1/clubs/%23{tag}"
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=self.headers) as resp:
+                    if resp.status == 200:
+                        return True, "200 OK"
+                    elif resp.status == 403:
+                        return False, "403 Forbidden (Неверный IP или ключ)"
+                    elif resp.status == 429:
+                        return False, "429 Too Many Requests (Бан за спам)"
+                    return False, f"HTTP {resp.status}"
+        except Exception as e:
+            return False, str(e)
+
     async def get_clan_names(self) -> Dict[str, str]:
         if self._clan_names_cache: return self._clan_names_cache
         if not settings.BS_API_KEY: return {tag: tag for tag in settings.CLAN_TAGS}
