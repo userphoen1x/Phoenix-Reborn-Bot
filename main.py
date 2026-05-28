@@ -13,6 +13,7 @@ from scheduler.setup import start_scheduler
 from tg_bot.middlewares.db_middleware import ServicesMiddleware
 from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
+from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
 
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat
 
