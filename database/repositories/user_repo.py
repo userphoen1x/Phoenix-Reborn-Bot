@@ -19,10 +19,6 @@ class UserRepository:
             return await cursor.fetchone()
 
     async def get_user_role(self, user_id: int) -> str:
-        if str(user_id) == settings.FOUNDER_ID:
-            return "Главарь"
-        if str(user_id) == settings.ADMIN_ID:
-            return "Программист"
         async with self.db.execute("SELECT game_role FROM tg_profiles WHERE user_id = ?", (user_id,)) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else "Гость"
@@ -34,8 +30,7 @@ class UserRepository:
     async def unlink_user_tag(self, target_username: str) -> bool:
         async with self.db.execute("SELECT user_id FROM tg_profiles WHERE full_name = ? COLLATE NOCASE", (target_username,)) as cursor:
             row = await cursor.fetchone()
-            if not row:
-                return False
+            if not row: return False
             user_id = row[0]
             await self.db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
             await self.db.execute("UPDATE tg_profiles SET game_role = 'Гость' WHERE user_id = ?", (user_id,))
@@ -43,10 +38,10 @@ class UserRepository:
             return True
 
     async def get_all_users_for_roles(self) -> List[Dict]:
-        query = "SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status, t.full_name FROM users u JOIN tg_profiles t ON u.user_id = t.user_id WHERE u.is_approved = 1"
+        query = "SELECT u.user_id, u.bs_tag, u.player_name, t.game_role, t.role_status, t.full_name, u.club_name FROM users u JOIN tg_profiles t ON u.user_id = t.user_id WHERE u.is_approved = 1"
         async with self.db.execute(query) as cursor:
             rows = await cursor.fetchall()
-            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5]} for r in rows]
+            return [{"user_id": r[0], "tag": r[1], "name": r[2], "game_role": r[3], "role_status": r[4], "tg_name": r[5], "club_name": r[6] if r[6] else "Без клуба"} for r in rows]
 
     async def get_all_registered_users(self) -> List[Tuple]:
         query = "SELECT t.full_name, u.bs_tag, u.player_name FROM users u JOIN tg_profiles t ON u.user_id = t.user_id WHERE u.is_approved = 1 ORDER BY u.player_name"
@@ -58,12 +53,3 @@ class UserRepository:
         async with self.db.execute(query) as cursor:
             rows = await cursor.fetchall()
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
-
-    async def save_link(self, link: str, user_id: int):
-        await self.db.execute("INSERT INTO links (link, user_id) VALUES (?, ?)", (link, user_id))
-        await self.db.commit()
-
-    async def get_link_owner(self, link: str) -> Optional[int]:
-        async with self.db.execute("SELECT user_id FROM links WHERE link = ?", (link,)) as cursor:
-            row = await cursor.fetchone()
-            return row[0] if row else None

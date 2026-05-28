@@ -12,6 +12,7 @@ from services.ai_service import AiService
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.user_repo import UserRepository
 from database.repositories.economy_repo import EconomyRepository
+from core.config import settings
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}), lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
@@ -32,10 +33,7 @@ async def _send_ai_reply(message: Message, bot: Bot, ai_response: str, ai_servic
                 await bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
                 await message.reply_voice(BufferedInputFile(voice_bytes, filename="voice.wav"))
                 return
-            else:
-                logging.warning("TTS вернул пустой результат — отправляю текст")
-        except Exception as e:
-            logging.warning(f"Не удалось сгенерировать голосовое: {e} — отправляю текст")
+        except Exception: pass
     await message.reply(ai_response, parse_mode=None)
 
 async def _process_media_message(message: Message, bot: Bot, ai_service: AiService) -> tuple[str | None, str, str]:
@@ -75,15 +73,17 @@ async def _process_media_message(message: Message, bot: Bot, ai_service: AiServi
 async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
     user_id = message.from_user.id
     role = await user_repo.get_user_role(user_id)
-    if role not in ["Главарь", "Программист"]: return
+    is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
+    if not is_tech and role not in ["Президент", "Вице-президент"]: return
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🦅 Классический Феникс", callback_data=AiModeCb(mode="default", uid=user_id).pack())], [InlineKeyboardButton(text="☣️ Токсичный Геймер", callback_data=AiModeCb(mode="toxic", uid=user_id).pack())], [InlineKeyboardButton(text="📜 Мудрый Философ", callback_data=AiModeCb(mode="philosopher", uid=user_id).pack())]])
-    await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер, с которым Феникс будет общаться в этом чате:", reply_markup=kb, parse_mode="HTML")
+    await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb, parse_mode="HTML")
 
 @router.callback_query(AiModeCb.filter())
 async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_repo: UserRepository, chat_repo: ChatRepository):
     if callback.from_user.id != callback_data.uid: return await callback.answer("❌ Это не твое меню настроек!", show_alert=True)
     role = await user_repo.get_user_role(callback.from_user.id)
-    if role not in ["Главарь", "Программист"]: return await callback.answer("❌ Недостаточно прав!", show_alert=True)
+    is_tech = str(callback.from_user.id) == settings.FOUNDER_ID or str(callback.from_user.id) in settings.DEVELOPER_IDS
+    if not is_tech and role not in ["Президент", "Вице-президент"]: return await callback.answer("❌ Недостаточно прав!", show_alert=True)
     mode = callback_data.mode
     await chat_repo.set_chat_mode(callback.message.chat.id, mode)
     await chat_repo.clear_chat_logs(callback.message.chat.id)
@@ -100,42 +100,33 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
     has_media = bool(message.voice or message.video_note or message.video or message.photo)
     if not has_text and not has_media: return
     message_text = message.text or message.caption or ""
-
     if has_text:
         await asyncio.gather(chat_repo.increment_message(user_id, message.chat.id, user_name), chat_repo.log_chat_message(message.chat.id, user_id, user_name, message_text), return_exceptions=True)
         text_lower = message_text.lower().strip()
         ignore_list = ["топ", "top", "топ10", "мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban", "разбан", "unban", "слоты", "слот", "кости", "кубик", "dice", "дартс", "darts", "боулинг", "боул", "футбол", "баскетбол", "сапер", "saper", "блекджек", "21", "очко", "баланс", "работа", "ворк", "перевод"]
         if any(text_lower.startswith(cmd) or text_lower.startswith("/" + cmd) for cmd in ignore_list): return
-
     bot_info = await bot.get_me()
     text_lower = message_text.lower().strip()
     is_mentioned = f"@{bot_info.username.lower()}" in text_lower or bot_info.first_name.lower() in text_lower
     is_reply_to_bot = bool(message.reply_to_message and message.reply_to_message.from_user.id == bot_info.id)
-
     if is_reply_to_bot and message.reply_to_message.text:
         if any(message.reply_to_message.text.startswith(prefix) for prefix in SCRIPTED_PREFIXES): return
-
     random_interject = random.random() < 0.01 if has_text else False
     should_respond = is_mentioned or is_reply_to_bot or random_interject
     if has_media and not (is_mentioned or is_reply_to_bot): return
     if not should_respond and not has_media: return
-
     eco = await eco_repo.get_eco_data(user_id)
     if not eco or not eco.get("bs_tag"):
         if is_mentioned or is_reply_to_bot: await message.reply("❌ Я общаюсь только с верифицированными участниками клуба. Отправь мне свой тег в ЛС!")
         return
-
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     history = await chat_repo.get_chat_context(message.chat.id, limit=10)
-
     media_payload = None
     if has_media:
         data, m_type, caption = await _process_media_message(message, bot, ai_service)
         if not data: return
         media_payload = (data, m_type, caption)
-
     ai_response = await ai_service.generate_response(message.chat.id, user_name, message_text, bot_info.id, history, media_payload)
     await _send_ai_reply(message, bot, ai_response, ai_service)
-
     try: await chat_repo.log_chat_message(message.chat.id, bot_info.id, bot_info.first_name, ai_response)
     except Exception: pass

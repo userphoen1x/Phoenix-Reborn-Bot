@@ -1,5 +1,4 @@
 import asyncio
-import os
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.types import Message, ChatPermissions, LinkPreviewOptions
@@ -11,31 +10,58 @@ from core.config import settings
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
+ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
+                "Участник": "👤", "Гость": "🗣️"}
+
+
+def get_combined_symbols(user_id: int, game_role: str) -> str:
+    syms = ""
+    if str(user_id) == settings.FOUNDER_ID: syms += ROLE_SYMBOLS.get("Главарь", "👑")
+    if str(user_id) in settings.DEVELOPER_IDS: syms += ROLE_SYMBOLS.get("Программист", "🧑🏻‍💻")
+    syms += ROLE_SYMBOLS.get(game_role, "🗣️")
+    return syms
+
+
+def is_cmd(text: str, cmds: list) -> bool:
+    if not text: return False
+    t = text.lower().strip()
+    return any(t == c or t.startswith(c + " ") for c in cmds)
+
 
 async def delete_later(message: Message, delay: int = 10800):
     await asyncio.sleep(delay)
-    try: await message.delete()
-    except: pass
+    try:
+        await message.delete()
+    except:
+        pass
+
 
 @router.message(Command("id"))
 async def cmd_get_topic_id(message: Message):
-    if message.message_thread_id: await message.answer(f"ID этого топика: <code>{message.message_thread_id}</code>", parse_mode="HTML")
-    else: await message.answer(f"ID этого чата: <code>{message.chat.id}</code>", parse_mode="HTML")
+    if message.message_thread_id:
+        await message.answer(f"ID этого топика: <code>{message.message_thread_id}</code>", parse_mode="HTML")
+    else:
+        await message.answer(f"ID этого чата: <code>{message.chat.id}</code>", parse_mode="HTML")
+
 
 @router.message(Command("force_scan"))
 async def admin_force_scan(message: Message):
-    if str(message.from_user.id) != settings.ADMIN_ID: return
+    if str(message.from_user.id) not in settings.DEVELOPER_IDS and str(
+        message.from_user.id) != settings.FOUNDER_ID: return
     sent_msg = await message.answer("⏳ Собираю данные...")
     from scheduler.jobs import collect_daily_stats
     await collect_daily_stats()
     await sent_msg.edit_text("✅ Готово")
     asyncio.create_task(delete_later(sent_msg, 60))
 
+
 @router.message(Command("all_reg_list"))
 async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
-    admin_role = await user_repo.get_user_role(message.from_user.id)
-    if admin_role not in ["Главарь", "Программист", "Президент", "Вице-президент"]: return
+    a_role = await user_repo.get_user_role(message.from_user.id)
+    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
+    is_dev = str(message.from_user.id) in settings.DEVELOPER_IDS
+    if not is_founder and not is_dev and a_role not in ["Президент", "Вице-президент"]: return
+
     users = await user_repo.get_all_registered_users()
     if not users:
         sent = await message.answer("📭 Список зарегистрированных пользователей пуст.")
@@ -47,23 +73,23 @@ async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
         lines.append(f"{i}. {name_str} привязан к тегу {tag} ({player_name})")
     text = "\n".join(lines)
     for x in range(0, len(text), 4000):
-        sent = await message.answer(text[x:x + 4000], parse_mode="HTML", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        sent = await message.answer(text[x:x + 4000], parse_mode="HTML",
+                                    link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(sent, 10800))
-    try: await message.delete()
-    except: pass
-def is_cmd(text: str, cmds: list) -> bool:
-    if not text: return False
-    t = text.lower().strip()
-    return any(t == c or t.startswith(c + " ") for c in cmds)
+    try:
+        await message.delete()
+    except:
+        pass
+
 
 @router.message(lambda msg: is_cmd(msg.text, ["понизить", "демоут"]))
 async def cmd_demote(message: Message, user_repo: UserRepository):
-    admin_role = await user_repo.get_user_role(message.from_user.id)
-    if admin_role not in ["Главарь", "Президент"]: return
+    a_role = await user_repo.get_user_role(message.from_user.id)
+    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
+    if not is_founder and a_role != "Президент": return
 
     parts = message.text.split()
     target_id, target_name = None, None
-
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -75,25 +101,24 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
                 target_id = u["user_id"]
                 target_name = target_username
                 break
-
     if not target_id:
-        sent = await message.answer("❌ Укажите @username (пользователь должен быть в базе) или ответьте на сообщение.")
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
         asyncio.create_task(delete_later(sent, 60))
         return
-
     await user_repo.set_user_role(target_id, "Гость", "Отклонен")
-    sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.", parse_mode="HTML")
+    sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
+                                parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["вернуть звание", "восстановить", "вернуть"]))
 async def cmd_restore_rank(message: Message, user_repo: UserRepository):
-    admin_role = await user_repo.get_user_role(message.from_user.id)
-    if admin_role not in ["Главарь", "Президент"]: return
+    a_role = await user_repo.get_user_role(message.from_user.id)
+    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
+    if not is_founder and a_role != "Президент": return
 
     parts = message.text.split()
     target_id, target_name = None, None
-
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -105,21 +130,25 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
                 target_id = u["user_id"]
                 target_name = target_username
                 break
-
     if not target_id:
         sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
         asyncio.create_task(delete_later(sent, 60))
         return
-
     await user_repo.set_user_role(target_id, "Участник", "Одобрен")
-    sent = await message.answer(f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.", parse_mode="HTML")
+    sent = await message.answer(
+        f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
+        parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
-@router.message(F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
+
+@router.message(
+    F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
     a_role = await user_repo.get_user_role(message.from_user.id)
-    if a_role not in ["Главарь", "Программист", "Президент", "Вице-президент"]: return
+    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
+    if not is_founder and a_role not in ["Президент", "Вице-президент"]: return
+
     parts = message.text.split()
     cmd = parts[0].lower()
     target_id, target_name = None, None
@@ -131,16 +160,24 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         sent_msg = await message.answer("❌ Ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
+
     dt = timedelta(minutes=10)
     time_str = "10 минут"
     if cmd in ["бан", "ban"]: dt = None; time_str = "навсегда"
     reason = " ".join(parts[1:]) if len(parts) > 1 else "Не указана"
+
     t_role = await user_repo.get_user_role(target_id)
-    fmt_admin = f"{ROLE_SYMBOLS.get(a_role, '👻')} <b>{message.from_user.first_name}</b>"
-    fmt_target = f"{ROLE_SYMBOLS.get(t_role, '👻')} <b>{target_name}</b>"
+    a_sym = get_combined_symbols(message.from_user.id, a_role)
+    t_sym = get_combined_symbols(target_id, t_role)
+
+    fmt_admin = f"{a_sym} <b>{message.from_user.first_name}</b>"
+    fmt_target = f"{t_sym} <b>{target_name}</b>"
+
     try:
         if cmd in ["мут", "mute"]:
-            await bot.restrict_chat_member(message.chat.id, target_id, permissions=ChatPermissions(can_send_messages=False), until_date=datetime.now() + dt)
+            await bot.restrict_chat_member(message.chat.id, target_id,
+                                           permissions=ChatPermissions(can_send_messages=False),
+                                           until_date=datetime.now() + dt)
             action_pub = f"лишен права голоса на {time_str}"
             emoji = "🔇"
         elif cmd in ["бан", "ban"]:
@@ -148,7 +185,14 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             action_pub = f"забанен навсегда"
             emoji = "🔨"
         elif cmd in ["анмут", "unmute", "размут"]:
-            await bot.restrict_chat_member(message.chat.id, target_id, permissions=ChatPermissions(can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True, can_invite_users=True))
+            await bot.restrict_chat_member(message.chat.id, target_id,
+                                           permissions=ChatPermissions(can_send_messages=True, can_send_audios=True,
+                                                                       can_send_documents=True, can_send_photos=True,
+                                                                       can_send_videos=True, can_send_video_notes=True,
+                                                                       can_send_voice_notes=True, can_send_polls=True,
+                                                                       can_send_other_messages=True,
+                                                                       can_add_web_page_previews=True,
+                                                                       can_invite_users=True))
             action_pub = "возвращен к полноценному общению"
             emoji = "🔊"
         elif cmd in ["кик", "kick"]:
@@ -160,9 +204,14 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             await bot.unban_chat_member(message.chat.id, target_id)
             action_pub = "разбанен (может вернуться в группу)"
             emoji = "✅"
-        else: return
-        try: await message.delete()
-        except: pass
+        else:
+            return
+
+        try:
+            await message.delete()
+        except:
+            pass
+
         pub_text = f"{emoji} Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\n📝 Причина: {reason}"
         pub_msg = await message.answer(pub_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(pub_msg))
