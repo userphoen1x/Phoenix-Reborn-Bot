@@ -32,6 +32,7 @@ async def main():
 
     dp.update.middleware(ServicesMiddleware(db_path=settings.DB_PATH))
     dp.message.middleware(AntiSpamMiddleware())
+    dp.include_router(tops.router)
 
     @dp.errors()
     async def global_error_handler(event, data):
