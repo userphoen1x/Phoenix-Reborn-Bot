@@ -1,55 +1,46 @@
 import asyncio
 import logging
-import os
-import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from dotenv import load_dotenv
 
-from handlers.private_reg import router as reg_router
-from handlers.group_events import router as group_router
-from handlers.group_commands import router as group_cmds_router
-from handlers.founder import router as founder_router
-from handlers.profile import router as profile_router
-from handlers.economy import router as economy_router
-from utils.database import init_db, upgrade_db_roles, upgrade_db_economy
-from utils.scheduler import start_scheduler
-from handlers.ai_chat import router as ai_router
+from core.config import settings
+from database.connection import init_db
+from scheduler.setup import start_scheduler
+from tg_bot.middlewares.db_middleware import ServicesMiddleware
+from utils.admin_logger import send_log
+
+from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat
 
 
 async def main():
-    load_dotenv()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    token = os.getenv("BOT_TOKEN")
-    if not token:
-        return
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    if not settings.BOT_TOKEN: return
 
     await init_db()
-    await upgrade_db_roles()
-    await upgrade_db_economy()
 
-    bot = Bot(token=token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
+
+    dp.update.middleware(ServicesMiddleware(db_path=settings.DB_PATH))
+
+    @dp.errors()
+    async def global_error_handler(event, data):
+        logging.error(f"Error: {event.exception}")
+        await send_log(bot, "TOPIC_SESSION", f"🔥 <b>Критический сбой бота:</b>\n<code>{event.exception}</code>")
+        return True
 
     start_scheduler(bot)
 
-    dp.include_router(founder_router)
-    dp.include_router(profile_router)
-    dp.include_router(economy_router)
-    dp.include_router(reg_router)
-    dp.include_router(group_router)
-    dp.include_router(group_cmds_router)
-    dp.include_router(ai_router)
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get("https://api.ipify.org") as resp:
-                ip = await resp.text()
-                logging.info(f"IP: {ip}")
-    except:
-        pass
+    dp.include_router(founder.router)
+    dp.include_router(profile.router)
+    dp.include_router(economy.router)
+    dp.include_router(casino.router)
+    dp.include_router(registration.router)
+    dp.include_router(group_events.router)
+    dp.include_router(group_commands.router)
+    dp.include_router(ai_chat.router)
 
     logging.info("START")
     await bot.delete_webhook(drop_pending_updates=True)
