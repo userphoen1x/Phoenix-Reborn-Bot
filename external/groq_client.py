@@ -6,7 +6,8 @@ class GroqClient:
     def __init__(self):
         self.smart_model = "llama-3.3-70b-versatile"
         self.cheap_model = "llama-3.1-8b-instant"
-        self.vision_model = "meta-llama/llama-4-scout-17b-16e-instruct"
+        # Указали реальную Vision-модель от Groq
+        self.vision_model = "llama-3.2-90b-vision-preview"
         self.whisper_model = "whisper-large-v3-turbo"
         self.tts_model = "canopylabs/orpheus-v1-english"
         self.tts_voice = "leo"

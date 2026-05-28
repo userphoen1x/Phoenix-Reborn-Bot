@@ -20,14 +20,15 @@ class AiService:
         if media_data:
             data, m_type, caption = media_data
             if m_type == "photo":
-                vision_system = system_prompt + f"\n\nТебе прислали картинку. Опиши что видишь и отреагируй в своём стиле. Подпись к картинке: «{caption}»" if caption else system_prompt + "\n\nТебе прислали картинку без подписи. Опиши что видишь и отреагируй в своём стиле."
+                # Правильно формируем структуру для Vision
+                prompt_text = f"Тебе прислали картинку. Подпись от пользователя: «{caption}»\nОпиши что видишь и отреагируй в своём стиле." if caption else "Тебе прислали картинку без подписи. Опиши что видишь и отреагируй в своём стиле."
                 messages = [
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": vision_system},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}"}},
-                            {"type": "text", "text": f"--- ТЕКУЩИЙ ЗАПРОС: {caption if caption else 'что на этой картинке?'} ---"}
+                            {"type": "text", "text": prompt_text},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{data}"}}
                         ]
                     }
                 ]
