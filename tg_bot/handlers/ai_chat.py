@@ -16,7 +16,7 @@ from core.config import settings
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}),
-                      lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))[cite: 5]
+                      lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
 
 VOICE_REPLY_CHANCE = 0.01
 
@@ -27,16 +27,16 @@ class AiModeCb(CallbackData, prefix="aimode"):
 
 
 SCRIPTED_PREFIXES = ("❌", "✅", "⚠️", "🎭", "📊", "🏆", "🎰", "🎲", "🎯", "🎳", "⚽", "🏀", "💣", "🃏", "💰", "💳", "⏳", "⬇️", "🔇",
-                     "🔊", "👢", "🔨", "💬", "🔥", "📈", "⚔️", "🌵", "👥", "👤", "🎖")[cite: 5]
+                     "🔊", "👢", "🔨", "💬", "🔥", "📈", "⚔️", "🌵", "👥", "👤", "🎖")
 
 
 async def _send_ai_reply(message: Message, bot: Bot, ai_response: str, ai_service: AiService):
     if random.random() < VOICE_REPLY_CHANCE:
         try:
-            voice_bytes = await ai_service.generate_voice(ai_response)[cite: 5]
+            voice_bytes = await ai_service.generate_voice(ai_response)
             if voice_bytes:
                 await bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
-                await message.reply_voice(BufferedInputFile(voice_bytes, filename="voice.wav"))[cite: 5]
+                await message.reply_voice(BufferedInputFile(voice_bytes, filename="voice.wav"))
                 return
         except Exception:
             pass
@@ -46,7 +46,7 @@ async def _send_ai_reply(message: Message, bot: Bot, ai_response: str, ai_servic
 async def _process_media_message(message: Message, bot: Bot, ai_service: AiService) -> tuple[str | None, str, str]:
     if message.voice:
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
-        file = await bot.get_file(message.voice.file_id)[cite: 5]
+        file = await bot.get_file(message.voice.file_id)
         file_bytes = await bot.download_file(file.file_path)
         transcript = await ai_service.transcribe_audio(file_bytes.read(), "voice.ogg")
         if transcript: return transcript, "voice", ""
@@ -55,7 +55,7 @@ async def _process_media_message(message: Message, bot: Bot, ai_service: AiServi
         await bot.send_chat_action(chat_id=message.chat.id, action="typing")
         file = await bot.get_file(message.video_note.file_id)
         file_bytes = await bot.download_file(file.file_path)
-        transcript = await ai_service.transcribe_audio(file_bytes.read(), "video_note.mp4")[cite: 5]
+        transcript = await ai_service.transcribe_audio(file_bytes.read(), "video_note.mp4")
         if transcript: return transcript, "video_note", ""
         return None, "", ""
     if message.video:
@@ -71,7 +71,7 @@ async def _process_media_message(message: Message, bot: Bot, ai_service: AiServi
         photo = message.photo[-1]
         file = await bot.get_file(photo.file_id)
         file_bytes = await bot.download_file(file.file_path)
-        img_b64 = base64.b64encode(file_bytes.read()).decode("utf-8")[cite: 5]
+        img_b64 = base64.b64encode(file_bytes.read()).decode("utf-8")
         caption = message.caption or ""
         return img_b64, "photo", caption
     return None, "", ""
@@ -82,7 +82,7 @@ async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
     user_id = message.from_user.id
     role = await user_repo.get_user_role(user_id)
 
-    is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS[cite: 5]
+    is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
     if not is_tech and role not in ["Президент", "Вице-президент"]: return
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -90,7 +90,7 @@ async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
                               callback_data=AiModeCb(mode="default", uid=user_id).pack())],
         [InlineKeyboardButton(text="☣️ Токсичный Геймер", callback_data=AiModeCb(mode="toxic", uid=user_id).pack())],
         [InlineKeyboardButton(text="📜 Мудрый Философ", callback_data=AiModeCb(mode="philosopher", uid=user_id).pack())]
-    ])[cite: 5]
+    ])
     await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb,
                          parse_mode="HTML")
 
@@ -109,11 +109,11 @@ async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_
         return await callback.answer("❌ Недостаточно прав!", show_alert=True)
 
     mode = callback_data.mode
-    await chat_repo.set_chat_mode(callback.message.chat.id, mode)[cite: 5]
+    await chat_repo.set_chat_mode(callback.message.chat.id, mode)
     await chat_repo.clear_chat_logs(callback.message.chat.id)
     mode_names = {"default": "🦅 Классический Феникс", "toxic": "☣️ Токсичный Геймер", "philosopher": "📜 Мудрый Философ"}
     await callback.message.edit_text(f"✅ Character Mode успешно изменен на: <b>{mode_names[mode]}</b>",
-                                     parse_mode="HTML")[cite: 5]
+                                     parse_mode="HTML")
     await callback.answer()
 
 
@@ -122,7 +122,7 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
                                  ai_service: AiService):
     if message.from_user.is_bot: return
     user_id = message.from_user.id
-    user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name[cite: 5]
+    user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
     has_text = bool(message.text)
     has_media = bool(message.voice or message.video_note or message.video or message.photo)
     if not has_text and not has_media: return
@@ -131,12 +131,12 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
     if has_text:
         await asyncio.gather(chat_repo.increment_message(user_id, message.chat.id, user_name),
                              chat_repo.log_chat_message(message.chat.id, user_id, user_name, message_text),
-                             return_exceptions=True)[cite: 5]
+                             return_exceptions=True)
         text_lower = message_text.lower().strip()
         ignore_list = ["топ", "top", "топ10", "мут", "mute", "анмут", "unmute", "размут", "кик", "kick", "бан", "ban",
                        "разбан", "unban", "слоты", "слот", "кости", "кубик", "dice", "дартс", "darts", "боулинг",
                        "боул", "футбол", "баскетбол", "сапер", "saper", "блекджек", "21", "очко", "баланс", "работа",
-                       "ворк", "перевод"][cite: 5]
+                       "ворк", "перевод"]
         if any(text_lower.startswith(cmd) or text_lower.startswith("/" + cmd) for cmd in ignore_list): return
 
     bot_info = await bot.get_me()
@@ -155,7 +155,7 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
     eco = await eco_repo.get_eco_data(user_id)
     if not eco or not eco.get("bs_tag"):
         if is_mentioned or is_reply_to_bot: await message.reply(
-            "❌ Я общаюсь только с верифицированными участниками клуба. Отправь мне свой тег в ЛС!")[cite: 5]
+            "❌ Я общаюсь только с верифицированными участниками клуба. Отправь мне свой тег в ЛС!")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -165,12 +165,12 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
     if has_media:
         data, m_type, caption = await _process_media_message(message, bot, ai_service)
         if not data:
-            await message.reply("не смог обработать, попробуй ещё раз", parse_mode=None)[cite: 5]
+            await message.reply("не смог обработать, попробуй ещё раз", parse_mode=None)
             return
-        media_payload = (data, m_type, caption)[cite: 5]
+        media_payload = (data, m_type, caption)
 
     ai_response = await ai_service.generate_response(message.chat.id, user_name, message_text, bot_info.id, history,
-                                                     media_payload)[cite: 5]
+                                                     media_payload)
     await _send_ai_reply(message, bot, ai_response, ai_service)
 
     try:
