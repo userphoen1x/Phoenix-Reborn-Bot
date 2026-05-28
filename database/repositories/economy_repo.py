@@ -1,6 +1,6 @@
 import aiosqlite
 import json
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 
 class EconomyRepository:
     def __init__(self, db: aiosqlite.Connection):
