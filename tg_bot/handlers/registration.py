@@ -22,7 +22,7 @@ async def cmd_start(message: Message, state: FSMContext, eco_repo: EconomyReposi
     if eco and eco.get("bs_tag"):
         await message.answer("✅ Вы уже зарегистрированы и привязали свой игровой тег!")
         return
-    await message.answer("👋 Привет! Отправь мне свой игровой тег Brawl Stars (например: <code>#2YYUG28QQ</code>), чтобы получить доступ к чатам.", parse_mode="HTML")
+    await message.answer("👋 Привет! Отправь мне свой игровой тег Brawl Stars (например: <code>#2YYUG28QQ</code>), чтобы получить доступ к функциям.", parse_mode="HTML")
     await state.set_state(RegFSM.waiting_for_tag)
 
 @router.message(RegFSM.waiting_for_tag)
@@ -31,7 +31,8 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot, reg_s
     wait_msg = await message.answer("⏳ Проверяю данные в игре...")
     try:
         result = await reg_service.register_player(message.from_user.id, user_tag)
-        await wait_msg.edit_text(f"✅ <b>Регистрация успешна!</b>\n\n👤 Имя: <b>{result['name']}</b>\n🏷 Тег: <code>{result['tag']}</code>\n🏰 Клуб: {result['club']}", parse_mode="HTML")
+        status_text = f"🏰 Клуб: {result['club']}\n🎖 Статус: Участник семейства" if result['is_in_club'] else f"🏰 Клуб: {result['club']}\n🗣️ Статус: Гость (Вне семейства)"
+        await wait_msg.edit_text(f"✅ <b>Регистрация успешна!</b>\n\n👤 Имя: <b>{result['name']}</b>\n🏷 Тег: <code>{result['tag']}</code>\n{status_text}", parse_mode="HTML")
         await state.clear()
         username_str = f"@{message.from_user.username}" if message.from_user.username else "Без юзернейма"
         log_text = f"👤 <b>НОВАЯ РЕГИСТРАЦИЯ</b>\n\n🔗 Юзер: {username_str} (<code>{message.from_user.id}</code>)\n🏷 Тег: <code>{result['tag']}</code>\n🎮 Имя в игре: <b>{result['name']}</b>\n🏰 Клуб: {result['club']}"

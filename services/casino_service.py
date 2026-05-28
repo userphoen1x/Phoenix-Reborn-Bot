@@ -4,19 +4,25 @@ from core.exceptions import NotEnoughMoneyError, UserNotRegisteredError
 class CasinoService:
     def __init__(self, eco_repo: EconomyRepository):
         self.eco_repo = eco_repo
-        self.last_game_msgs = {}
-        self.bj_games = {}
-        self.saper_games = {}
 
-    async def _check_and_charge_bet(self, user_id: int, bet: int) -> int:
+    async def get_balance(self, user_id: int) -> int:
+        eco = await self.eco_repo.get_eco_data(user_id)
+        if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError()
+        return eco["balance"]
+
+    async def charge_bet(self, user_id: int, bet: int) -> int:
         eco = await self.eco_repo.get_eco_data(user_id)
         if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError()
         if eco["balance"] < bet: raise NotEnoughMoneyError()
         await self.eco_repo.update_balance(user_id, -bet)
-        return eco["balance"]
+        return eco["balance"] - bet
+
+    async def credit_win(self, user_id: int, amount: int):
+        if amount > 0:
+            await self.eco_repo.update_balance(user_id, amount)
 
     async def play_emoji_game(self, user_id: int, game: str, bet: int, dice_value: int, guess: int = None) -> tuple:
-        await self._check_and_charge_bet(user_id, bet)
+        await self.charge_bet(user_id, bet)
         mult = 0.0
         msg_result = "Увы, ставка сгорела. 😔"
         if game == "slot":
@@ -30,6 +36,5 @@ class CasinoService:
         elif game in ["fball", "bball"]:
             if dice_value in [4, 5]: mult, msg_result = 2.0, "ГООООЛ! / Точно в корзину! 🏆 (x2)"
         win_amount = int(bet * mult)
-        if win_amount > 0:
-            await self.eco_repo.update_balance(user_id, win_amount)
+        await self.credit_win(user_id, win_amount)
         return msg_result, win_amount

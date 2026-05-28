@@ -7,7 +7,8 @@ from external.brawl_api import BrawlAPIClient
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-ROLE_SYMBOLS = {"Основатель": "👑", "Программист": "👨‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "👻"}
+
+ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
 
 def get_rank_name(val: int):
     ranks = {1: "🥉 Бронза 1", 2: "🥉 Бронза 2", 3: "🥉 Бронза 3", 4: "🥈 Серебро 1", 5: "🥈 Серебро 2", 6: "🥈 Серебро 3", 7: "🥇 Золото 1", 8: "🥇 Золото 2", 9: "🥇 Золото 3", 10: "💎 Алмаз 1", 11: "💎 Алмаз 2", 12: "💎 Алмаз 3", 13: "🟣 Мифик 1", 14: "🟣 Мифик 2", 15: "🟣 Мифик 3", 16: "🔴 Лега 1", 17: "🔴 Лега 2", 18: "🔴 Лега 3", 19: "🟡 Мастер 1", 20: "🟡 Мастер 2", 21: "🟡 Мастер 3", 22: "🟢 Про"}
@@ -21,10 +22,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     eco_data = await eco_repo.get_eco_data(target_id)
     role = await user_repo.get_user_role(target_id)
     if not db_user or not eco_data:
-        sent = await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
-        return
+        return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
     player_name, _, _, tg_full_name = db_user
-    sym = ROLE_SYMBOLS.get(role, "○")
+    sym = ROLE_SYMBOLS.get(role, "🗣️")
     name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>" if tg_full_name and tg_full_name.startswith("@") else f"<b>{player_name}</b>"
     bs_tag = eco_data.get('bs_tag', '')
     if bs_tag:

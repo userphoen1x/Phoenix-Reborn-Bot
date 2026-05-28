@@ -22,7 +22,7 @@ SCRIPTED_PREFIXES = ("❌", "✅", "⚠️", "🎭", "📊", "🏆", "🎰", "�
 @router.message(Command("характер"))
 async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
     role = await user_repo.get_user_role(message.from_user.id)
-    if role not in ["Основатель", "Программист", "Президент", "Вице-президент"]: return
+    if role not in ["Главарь", "Программист", "Президент", "Вице-президент"]: return
     kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🦅 Классический Феникс", callback_data=AiModeCb(mode="default", uid=message.from_user.id).pack())], [InlineKeyboardButton(text="☣️ Токсичный Геймер", callback_data=AiModeCb(mode="toxic", uid=message.from_user.id).pack())], [InlineKeyboardButton(text="📜 Мудрый Философ", callback_data=AiModeCb(mode="philosopher", uid=message.from_user.id).pack())]])
     await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb, parse_mode="HTML")
 

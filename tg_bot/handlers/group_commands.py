@@ -11,7 +11,7 @@ from core.config import settings
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-ROLE_SYMBOLS = {"Основатель": "👑", "Программист": "👨‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "👻"}
+ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
 
 async def delete_later(message: Message, delay: int = 10800):
     await asyncio.sleep(delay)
@@ -35,7 +35,7 @@ async def admin_force_scan(message: Message):
 @router.message(Command("all_reg_list"))
 async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
     admin_role = await user_repo.get_user_role(message.from_user.id)
-    if admin_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]: return
+    if admin_role not in ["Главарь", "Программист", "Президент", "Вице-президент"]: return
     users = await user_repo.get_all_registered_users()
     if not users:
         sent = await message.answer("📭 Список зарегистрированных пользователей пуст.")
@@ -56,7 +56,7 @@ async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
     a_role = await user_repo.get_user_role(message.from_user.id)
-    if a_role not in ["Основатель", "Программист", "Президент", "Вице-президент"]: return
+    if a_role not in ["Главарь", "Программист", "Президент", "Вице-президент"]: return
     parts = message.text.split()
     cmd = parts[0].lower()
     target_id, target_name = None, None

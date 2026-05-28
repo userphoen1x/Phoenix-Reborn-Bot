@@ -10,7 +10,7 @@ class UserRepository:
         await self.db.execute("DELETE FROM users WHERE bs_tag = ?", (bs_tag,))
         await self.db.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         await self.db.execute("INSERT INTO users (user_id, bs_tag, player_name, club_name, is_approved) VALUES (?, ?, ?, ?, 1)", (user_id, bs_tag, player_name, club_name))
-        await self.db.execute("INSERT OR IGNORE INTO tg_profiles (user_id, full_name, balance) VALUES (?, ?, 1000)", (user_id, player_name))
+        await self.db.execute("INSERT OR IGNORE INTO tg_profiles (user_id, full_name, balance, game_role) VALUES (?, ?, 1000, 'Гость')", (user_id, player_name))
         await self.db.commit()
 
     async def get_user_data(self, user_id: int) -> Optional[Tuple]:
@@ -20,7 +20,7 @@ class UserRepository:
 
     async def get_user_role(self, user_id: int) -> str:
         if str(user_id) == settings.FOUNDER_ID:
-            return "Основатель"
+            return "Главарь"
         if str(user_id) == settings.ADMIN_ID:
             return "Программист"
         async with self.db.execute("SELECT game_role FROM tg_profiles WHERE user_id = ?", (user_id,)) as cursor:
