@@ -64,6 +64,30 @@ async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
             f"⚠️ <b>Ключ сохранен, но API недоступно!</b>\nВозможно, вы не добавили новый IP в белый список Supercell.\nОшибка: <code>{status_msg}</code>",
             parse_mode="HTML"
         )
+    from aiogram.types import FSInputFile
+
+    @router.message(Command("ping"))
+    async def admin_ping(message: Message, brawl_client: BrawlAPIClient):
+        if not is_superadmin(message.from_user.id): return
+        wait_msg = await message.answer("⏳ Проверяю связь с серверами Supercell...")
+        ok, text = await brawl_client.check_api_connection()
+        await wait_msg.edit_text(f"Статус API:\n{text}")
+
+    @router.message(Command("get_db"))
+    async def admin_get_db(message: Message):
+        if not is_superadmin(message.from_user.id): return
+        if os.path.exists(settings.DB_PATH):
+            await message.answer_document(document=FSInputFile(settings.DB_PATH), caption="🗄 База данных")
+        else:
+            await message.answer("❌ Файл не найден")
+
+    @router.message(Command("force_roles"))
+    async def cmd_force_roles(message: Message, bot: Bot):
+        if not is_superadmin(message.from_user.id): return
+        await message.answer("Запускаю ручную проверку ролей. Ждите...")
+        from scheduler.jobs import check_roles
+        await check_roles(bot)
+        await message.answer("✅ Проверка завершена.")
 
     try:
         await message.delete()

@@ -51,6 +51,69 @@ async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
         asyncio.create_task(delete_later(sent, 10800))
     try: await message.delete()
     except: pass
+def is_cmd(text: str, cmds: list) -> bool:
+    if not text: return False
+    t = text.lower().strip()
+    return any(t == c or t.startswith(c + " ") for c in cmds)
+
+@router.message(lambda msg: is_cmd(msg.text, ["понизить", "демоут"]))
+async def cmd_demote(message: Message, user_repo: UserRepository):
+    admin_role = await user_repo.get_user_role(message.from_user.id)
+    if admin_role not in ["Главарь", "Президент"]: return
+
+    parts = message.text.split()
+    target_id, target_name = None, None
+
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
+    elif len(parts) > 1 and parts[1].startswith("@"):
+        target_username = parts[1]
+        all_users = await user_repo.get_all_users_for_roles()
+        for u in all_users:
+            if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+                target_id = u["user_id"]
+                target_name = target_username
+                break
+
+    if not target_id:
+        sent = await message.answer("❌ Укажите @username (пользователь должен быть в базе) или ответьте на сообщение.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
+    await user_repo.set_user_role(target_id, "Гость", "Отклонен")
+    sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.", parse_mode="HTML")
+    asyncio.create_task(delete_later(sent))
+
+
+@router.message(lambda msg: is_cmd(msg.text, ["вернуть звание", "восстановить", "вернуть"]))
+async def cmd_restore_rank(message: Message, user_repo: UserRepository):
+    admin_role = await user_repo.get_user_role(message.from_user.id)
+    if admin_role not in ["Главарь", "Президент"]: return
+
+    parts = message.text.split()
+    target_id, target_name = None, None
+
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
+    elif len(parts) > 2 and parts[-1].startswith("@"):
+        target_username = parts[-1]
+        all_users = await user_repo.get_all_users_for_roles()
+        for u in all_users:
+            if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+                target_id = u["user_id"]
+                target_name = target_username
+                break
+
+    if not target_id:
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
+        asyncio.create_task(delete_later(sent, 60))
+        return
+
+    await user_repo.set_user_role(target_id, "Участник", "Одобрен")
+    sent = await message.answer(f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.", parse_mode="HTML")
+    asyncio.create_task(delete_later(sent))
 
 @router.message(F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
