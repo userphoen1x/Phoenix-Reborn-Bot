@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import aiohttp
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.default import DefaultBotProperties
@@ -16,7 +18,10 @@ from tg_bot.handlers import registration, group_events, group_commands, founder,
 
 async def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-    if not settings.BOT_TOKEN: return
+
+    if not settings.BOT_TOKEN:
+        logging.error("BOT_TOKEN не найден!")
+        return
 
     await init_db()
 
@@ -42,7 +47,19 @@ async def main():
     dp.include_router(group_commands.router)
     dp.include_router(ai_chat.router)
 
-    logging.info("START")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.ipify.org") as resp:
+                if resp.status == 200:
+                    ip = await resp.text()
+                    logging.info(f"🌐 Текущий IP-адрес сервера: {ip}")
+                else:
+                    logging.warning(f"Не удалось получить IP, статус: {resp.status}")
+    except Exception as e:
+        logging.warning(f"Ошибка при получении IP: {e}")
+
+    logging.info("🚀 БОТ УСПЕШНО ЗАПУЩЕН")
+
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"])
 
@@ -51,4 +68,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        pass
+        logging.info("🛑 Бот остановлен.")
