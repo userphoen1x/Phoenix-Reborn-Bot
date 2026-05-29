@@ -5,6 +5,12 @@ from aiogram.types import Message
 from services.economy_service import EconomyService
 from database.repositories.user_repo import UserRepository
 from core.exceptions import UserNotRegisteredError, WorkCooldownError, NotEnoughMoneyError
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import StatesGroup, State
+
+class TransferFSM(StatesGroup):
+    waiting_for_target = State()
+    waiting_for_amount = State()
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}), lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
@@ -53,41 +59,140 @@ async def cmd_work(message: Message, eco_service: EconomyService):
         asyncio.create_task(delete_later(sent_msg))
 
 @router.message(lambda msg: is_cmd(msg.text, ["перевод", "перевести", "pay", "/pay"]))
-async def cmd_pay(message: Message, eco_service: EconomyService, user_repo: UserRepository):
+# Вспомогательная функция для выполнения самого перевода
+async def execute_transfer(message: Message, sender_id: int, target_id: int, target_name: str, amount: int, eco_service: EconomyService, state: FSMContext):
+    try:
+        await eco_service.transfer_funds(sender_id, target_id, amount)
+        sent_msg = await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: {target_name}\n💸 Сумма: <b>{amount} ₣</b>", parse_mode="HTML")
+        asyncio.create_task(delete_later(sent_msg, 60))
+    except UserNotRegisteredError as e:
+        err_text = "❌ Этот игрок еще не зарегистрирован в боте." if target_id != sender_id else str(e)
+        sent_msg = await message.answer(err_text)
+        asyncio.create_task(delete_later(sent_msg, 15))
+    except NotEnoughMoneyError as e:
+        sent_msg = await message.answer(str(e))
+        asyncio.create_task(delete_later(sent_msg, 15))
+    except ValueError as e:
+        sent_msg = await message.answer(f"❌ {e}")
+        asyncio.create_task(delete_later(sent_msg, 15))
+    finally:
+        await state.clear() # Очищаем состояние в любом случае (успех или ошибка)
+
+# 1. Главный хэндлер команды
+@router.message(lambda msg: msg.text and is_cmd(msg.text, ["перевод", "передать", "transfer"]))
+async def cmd_transfer(message: Message, state: FSMContext, eco_service: EconomyService, user_repo: UserRepository):
+    await state.clear() # Сбрасываем старые состояния, если они были
     parts = message.text.split()
-    if len(parts) < 3:
-        sent = await message.answer("❌ Укажите пользователя и сумму. Пример: <code>перевод @username 100</code>", parse_mode="HTML")
-        asyncio.create_task(delete_later(sent, 60))
-        return
-    target_id = None
-    target_name = None
-    idx = 1
-    if parts[idx].startswith("@"):
-        target_username = parts[idx]
-        idx += 1
+    target_username = None
+    amount = None
+
+    for word in parts[1:]:
+        if word.startswith("@") and not target_username:
+            target_username = word
+        elif word.isdigit() and amount is None:
+            amount = int(word)
+
+    target_id, target_name = None, None
+
+    if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
-            if u["tg_name"].lower() == target_username.lower() or f"@{u['tg_name']}".lower() == target_username.lower():
-                target_id = u["user_id"]
-                break
-        target_name = target_username
+            tg_name = u.get("tg_name", "")
+            if tg_name:
+                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+                if check_name == target_username.lower():
+                    target_id = u["user_id"]
+                    target_name = target_username
+                    break
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         u = message.reply_to_message.from_user
-        target_name = f"@{u.username}" if u.username else u.full_name
+        target_name = f"@{u.username}" if u.username else f"<b>{u.first_name}</b>"
+
+    # Сценарий А: Есть и получатель, и сумма -> сразу переводим
+    if target_id and amount is not None and amount > 0:
+        await execute_transfer(message, message.from_user.id, target_id, target_name, amount, eco_service, state)
+        try: await message.delete()
+        except: pass
+        
+    # Сценарий Б: Есть получатель, но нет суммы -> спрашиваем сумму
+    elif target_id:
+        await state.update_data(target_id=target_id, target_name=target_name)
+        await message.answer("💸 <b>Сколько Феников вы хотите перевести?</b>\n<i>Напишите сумму числом.</i>", parse_mode="HTML")
+        await state.set_state(TransferFSM.waiting_for_amount)
+        
+    # Сценарий В: Есть сумма, но нет получателя -> спрашиваем получателя
+    elif amount is not None and amount > 0:
+        await state.update_data(amount=amount)
+        await message.answer("👤 <b>Кому перевести?</b>\n<i>Напишите @username игрока.</i>", parse_mode="HTML")
+        await state.set_state(TransferFSM.waiting_for_target)
+        
+    # Сценарий Г: Пользователь просто написал "перевод" -> спрашиваем получателя
+    else:
+        await message.answer("👤 <b>Кому перевести?</b>\n<i>Напишите @username игрока.</i>", parse_mode="HTML")
+        await state.set_state(TransferFSM.waiting_for_target)
+
+# 2. Ловим ответ, когда бот ждет @username
+@router.message(TransferFSM.waiting_for_target)
+async def process_transfer_target(message: Message, state: FSMContext, user_repo: UserRepository, eco_service: EconomyService):
+    if is_cmd(message.text, ["отмена", "cancel", "стоп"]):
+        await state.clear()
+        return await message.answer("❌ Перевод отменен.")
+
+    target_username = message.text.strip()
+    if not target_username.startswith("@"):
+        target_username = f"@{target_username}"
+
+    target_id, target_name = None, None
+    all_users = await user_repo.get_all_users_for_roles()
+    for u in all_users:
+        tg_name = u.get("tg_name", "")
+        if tg_name:
+            check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+            if check_name == target_username.lower():
+                target_id = u["user_id"]
+                target_name = target_username
+                break
+    
     if not target_id:
-        sent_msg = await message.answer("❌ Не удалось найти пользователя. Укажите @username или ответьте на его сообщение.")
-        asyncio.create_task(delete_later(sent_msg))
+        sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден. Попробуйте еще раз или напишите «отмена».")
+        asyncio.create_task(delete_later(sent_msg, 15))
         return
-    if not parts[idx].isdigit():
-        sent_msg = await message.answer("❌ Укажите сумму перевода числом. Пример: <code>перевод @username 100</code>", parse_mode="HTML")
-        asyncio.create_task(delete_later(sent_msg))
+        
+    data = await state.get_data()
+    amount = data.get("amount")
+    
+    if amount: # Если сумма уже была введена ранее
+        await execute_transfer(message, message.from_user.id, target_id, target_name, amount, eco_service, state)
+    else: # Если суммы еще нет
+        await state.update_data(target_id=target_id, target_name=target_name)
+        await message.answer("💸 <b>Сколько Феников вы хотите перевести?</b>\n<i>Напишите сумму числом.</i>", parse_mode="HTML")
+        await state.set_state(TransferFSM.waiting_for_amount)
+
+# 3. Ловим ответ, когда бот ждет сумму
+@router.message(TransferFSM.waiting_for_amount)
+async def process_transfer_amount(message: Message, state: FSMContext, eco_service: EconomyService):
+    if is_cmd(message.text, ["отмена", "cancel", "стоп"]):
+        await state.clear()
+        return await message.answer("❌ Перевод отменен.")
+
+    if not message.text.isdigit():
+        sent_msg = await message.answer("❌ Укажите сумму целым числом. Попробуйте еще раз или напишите «отмена».")
+        asyncio.create_task(delete_later(sent_msg, 15))
         return
-    amount = int(parts[idx])
-    try:
-        await eco_service.transfer_funds(message.from_user.id, target_id, amount)
-        sent_msg = await message.answer(f"✅ <b>Перевод выполнен!</b>\n\n👤 Кому: <b>{target_name}</b>\n💸 Сумма: <b>{amount}</b> ₣", parse_mode="HTML")
-        asyncio.create_task(delete_later(sent_msg))
-    except (UserNotRegisteredError, NotEnoughMoneyError, ValueError) as e:
-        sent_msg = await message.answer(str(e))
-        asyncio.create_task(delete_later(sent_msg))
+        
+    amount = int(message.text)
+    if amount <= 0:
+        sent_msg = await message.answer("❌ Сумма должна быть больше нуля.")
+        asyncio.create_task(delete_later(sent_msg, 15))
+        return
+        
+    data = await state.get_data()
+    target_id = data.get("target_id")
+    target_name = data.get("target_name")
+    
+    if target_id and target_name:
+        await execute_transfer(message, message.from_user.id, target_id, target_name, amount, eco_service, state)
+    else:
+        await state.clear()
+        await message.answer("❌ Произошла ошибка. Пожалуйста, начните перевод заново.")
