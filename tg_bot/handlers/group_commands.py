@@ -152,19 +152,58 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     parts = message.text.split()
     cmd = parts[0].lower()
     target_id, target_name = None, None
+
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         u = message.reply_to_message.from_user
         target_name = f"@{u.username}" if u.username else u.full_name
+
     if not target_id:
         sent_msg = await message.answer("❌ Ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
+    # Умный парсинг времени
     dt = timedelta(minutes=10)
     time_str = "10 минут"
-    if cmd in ["бан", "ban"]: dt = None; time_str = "навсегда"
-    reason = " ".join(parts[1:]) if len(parts) > 1 else "Не указана"
+    reason_parts = parts[1:]
+
+    if cmd in ["бан", "ban"]:
+        dt = None
+        time_str = "навсегда"
+    elif cmd in ["мут", "mute"] and len(parts) > 1:
+        t_arg = parts[1].lower()
+        parsed_mins = None
+
+        if t_arg.isdigit():
+            parsed_mins = int(t_arg)
+        elif t_arg in ["минута", "минуту", "1м", "1m"]:
+            parsed_mins = 1
+        elif t_arg in ["час", "1ч", "1h"]:
+            parsed_mins = 60
+        elif t_arg.endswith("м") and t_arg[:-1].isdigit():
+            parsed_mins = int(t_arg[:-1])
+        elif t_arg.endswith("ч") and t_arg[:-1].isdigit():
+            parsed_mins = int(t_arg[:-1]) * 60
+        elif t_arg.endswith("m") and t_arg[:-1].isdigit():
+            parsed_mins = int(t_arg[:-1])
+        elif t_arg.endswith("h") and t_arg[:-1].isdigit():
+            parsed_mins = int(t_arg[:-1]) * 60
+
+        if parsed_mins is not None:
+            dt_minutes = max(1, parsed_mins)
+            dt = timedelta(minutes=dt_minutes)
+            reason_parts = parts[2:]
+
+            # Склонение времени
+            if dt_minutes % 10 == 1 and dt_minutes % 100 != 11:
+                time_str = f"{dt_minutes} минуту"
+            elif 2 <= dt_minutes % 10 <= 4 and not (12 <= dt_minutes % 100 <= 14):
+                time_str = f"{dt_minutes} минуты"
+            else:
+                time_str = f"{dt_minutes} минут"
+
+    reason = " ".join(reason_parts) if reason_parts else "Не указана"
 
     t_role = await user_repo.get_user_role(target_id)
     a_sym = get_combined_symbols(message.from_user.id, a_role)
@@ -215,6 +254,7 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         pub_text = f"{emoji} Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\n📝 Причина: {reason}"
         pub_msg = await message.answer(pub_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
         asyncio.create_task(delete_later(pub_msg))
+
         log_payload = f"🚨 <b>ЛОГ НАКАЗАНИЯ</b>\n\n👮‍♂️ Модератор: {fmt_admin}\n👤 Нарушитель: {fmt_target}\n🛠 Действие: <b>{action_pub}</b>\n📝 Причина: {reason}"
         await send_log(bot, "TOPIC_PUNISH", log_payload)
     except Exception:

@@ -88,7 +88,6 @@ async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🦅 Классический Феникс",
                               callback_data=AiModeCb(mode="default", uid=user_id).pack())],
-        [InlineKeyboardButton(text="☣️ Токсичный Геймер", callback_data=AiModeCb(mode="toxic", uid=user_id).pack())],
         [InlineKeyboardButton(text="📜 Мудрый Философ", callback_data=AiModeCb(mode="philosopher", uid=user_id).pack())]
     ])
     await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb,
@@ -111,10 +110,22 @@ async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_
     mode = callback_data.mode
     await chat_repo.set_chat_mode(callback.message.chat.id, mode)
     await chat_repo.clear_chat_logs(callback.message.chat.id)
-    mode_names = {"default": "🦅 Классический Феникс", "toxic": "☣️ Токсичный Геймер", "philosopher": "📜 Мудрый Философ"}
-    await callback.message.edit_text(f"✅ Character Mode успешно изменен на: <b>{mode_names[mode]}</b>",
-                                     parse_mode="HTML")
+    mode_names = {"default": "🦅 Классический Феникс", "philosopher": "📜 Мудрый Философ"}
+    await callback.message.edit_text(
+        f"✅ Character Mode успешно изменен на: <b>{mode_names.get(mode, 'Классический')}</b>", parse_mode="HTML")
     await callback.answer()
+
+
+@router.message(Command("clear_ai"))
+async def cmd_clear_ai_memory(message: Message, user_repo: UserRepository, chat_repo: ChatRepository):
+    user_id = message.from_user.id
+    role = await user_repo.get_user_role(user_id)
+    is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
+    if not is_tech and role not in ["Президент", "Вице-президент"]: return
+
+    await chat_repo.clear_chat_logs(message.chat.id)
+    await message.answer("🧹 <b>Память ИИ успешно очищена!</b>\nФеникс забыл контекст последних сообщений в этом чате.",
+                         parse_mode="HTML")
 
 
 @router.message()
