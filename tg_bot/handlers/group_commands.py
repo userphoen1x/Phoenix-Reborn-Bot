@@ -145,36 +145,79 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
+
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
-    if not is_founder and a_role not in ["Президент", "Вице-президент"]: return
+
+    # Иерархия: Главарь > Президент > Вице-президент (Разработчики вне системы модерации)
+    if not is_founder and a_role not in ["Главарь", "Президент", "Вице-президент"]:
+        err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
+        asyncio.create_task(delete_later(err_msg, 60))
+        return
 
     parts = message.text.split()
     cmd = parts[0].lower()
+
+    target_username = None
+    t_arg = None
+    reason_parts = []
+
+    # Функция-помощник для определения, является ли слово указателем времени
+    def is_time_arg(word: str) -> bool:
+        w = word.lower()
+        if w.isdigit(): return True
+        if w in ["минута", "минуту", "1м", "1m", "час", "1ч", "1h"]: return True
+        if w.endswith(("м", "ч", "m", "h")) and w[:-1].isdigit(): return True
+        return False
+
+    # Умный парсинг аргументов независимо от их порядка
+    for word in parts[1:]:
+        if word.startswith("@") and not target_username:
+            target_username = word
+        elif cmd in ["мут", "mute"] and not t_arg and is_time_arg(word):
+            t_arg = word.lower()
+        else:
+            reason_parts.append(word)
+
     target_id, target_name = None, None
 
-    if message.reply_to_message:
+    # 1. Ищем цель по тегу, если он был найден в сообщении
+    if target_username:
+        all_users = await user_repo.get_all_users_for_roles()
+        for u in all_users:
+            tg_name = u.get("tg_name", "")
+            if tg_name:
+                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+                if check_name == target_username.lower():
+                    target_id = u["user_id"]
+                    target_name = target_username
+                    break
+        if not target_id:
+            sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
+            asyncio.create_task(delete_later(sent_msg, 60))
+            return
+
+    # 2. Если тега не было, проверяем ответ на сообщение (reply)
+    elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         u = message.reply_to_message.from_user
         target_name = f"@{u.username}" if u.username else u.full_name
 
+    # Если ни тега, ни реплая нет
     if not target_id:
-        sent_msg = await message.answer("❌ Ответьте на сообщение пользователя.")
+        sent_msg = await message.answer("❌ Ответьте на сообщение пользователя или укажите его @username.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    # Умный парсинг времени
-    dt = timedelta(minutes=10)
+    # Обработка времени
+    dt = timedelta(minutes=10)  # Дефолт
     time_str = "10 минут"
-    reason_parts = parts[1:]
 
     if cmd in ["бан", "ban"]:
         dt = None
         time_str = "навсегда"
-    elif cmd in ["мут", "mute"] and len(parts) > 1:
-        t_arg = parts[1].lower()
+    elif cmd in ["мут", "mute"] and t_arg:
         parsed_mins = None
-
         if t_arg.isdigit():
             parsed_mins = int(t_arg)
         elif t_arg in ["минута", "минуту", "1м", "1m"]:
@@ -193,9 +236,8 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         if parsed_mins is not None:
             dt_minutes = max(1, parsed_mins)
             dt = timedelta(minutes=dt_minutes)
-            reason_parts = parts[2:]
 
-            # Склонение времени
+            # Правильное склонение минут
             if dt_minutes % 10 == 1 and dt_minutes % 100 != 11:
                 time_str = f"{dt_minutes} минуту"
             elif 2 <= dt_minutes % 10 <= 4 and not (12 <= dt_minutes % 100 <= 14):

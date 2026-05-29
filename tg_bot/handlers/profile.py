@@ -25,12 +25,34 @@ def get_rank_name(val: int):
 async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: EconomyRepository,
                       chat_repo: ChatRepository, brawl_client: BrawlAPIClient):
     target_id = message.from_user.id
-    if message.reply_to_message: target_id = message.reply_to_message.from_user.id
+    parts = message.text.split()
+
+    # 1. Проверяем ответ на сообщение (реплай)
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+    elif len(parts) > 1 and parts[1].startswith("@"):
+        target_username = parts[1]
+        all_users = await user_repo.get_all_users_for_roles()
+        found = False
+        for u in all_users:
+            tg_name = u.get("tg_name", "")
+            if tg_name:
+                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+                if check_name == target_username.lower():
+                    target_id = u["user_id"]
+                    found = True
+                    break
+        if not found:
+            sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе данных.")
+            asyncio.create_task(delete_later(sent_msg, 60))
+            return
+
     db_user = await user_repo.get_user_data(target_id)
     eco_data = await eco_repo.get_eco_data(target_id)
     game_role = await user_repo.get_user_role(target_id)
 
-    if not db_user or not eco_data: return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
+    if not db_user or not eco_data:
+        return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
 
     roles = []
     if str(target_id) == settings.FOUNDER_ID: roles.append("Главарь")
@@ -60,7 +82,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     else:
         gain_str = trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
 
-    balance = eco_data["balance"]
-    level = eco_data["level"]
+    balance = eco_data.get("balance", 0)
+    level = eco_data.get("level", 1)
+
     text = f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n┌ 📱 Ник: {sym} {name_link}\n├ 📈 За день: {gain_str}\n├ 🏆 Общие: {trophies}\n├ ⚔️ 3 на 3: {wins3v3}\n├ 🌵 ШД: {sd_wins}\n├ 🎖 Ранкед: {rank_name} ({rank_elo})\n├ 🌟 Уровень: {level}\n└ 💰 Баланс: {balance} ₣"
+
     await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
