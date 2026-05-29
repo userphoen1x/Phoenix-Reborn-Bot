@@ -67,24 +67,27 @@ async def cmd_force_roles(message: Message, bot: Bot):
     await check_roles(bot)
     await message.answer("✅ Проверка завершена.")
 
+
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserRepository):
-    if str(callback.from_user.id) != settings.FOUNDER_ID: return await callback.answer("Нет прав", show_alert=True)
+    if str(callback.from_user.id) != settings.FOUNDER_ID:
+        return await callback.answer("Нет прав", show_alert=True)
+
     _, uid_str, role_eng = callback.data.split(":")
     user_id = int(uid_str)
     role_ru = {"president": "Президент", "vicePresident": "Вице-президент"}.get(role_eng, "Участник")
+
     user_data = await user_repo.get_user_data(user_id)
-    if not user_data: return await callback.message.edit_text("Ошибка: Пользователь больше не найден в базе.")
-    game_name = user_data[0]
+    if not user_data:
+        return await callback.message.edit_text("❌ Ошибка: Пользователь больше не найден в базе.")
+
     try:
-        if settings.TARGET_CHAT_ID:
-            await bot.promote_chat_member(chat_id=settings.TARGET_CHAT_ID, user_id=user_id, can_manage_chat=True, can_delete_messages=True, can_restrict_members=True, can_invite_users=True)
-            custom_title = f"{ROLE_SYMBOLS.get(role_ru, '○')} {game_name}"
-            await bot.set_chat_administrator_custom_title(chat_id=settings.TARGET_CHAT_ID, user_id=user_id, custom_title=custom_title[:16])
         await user_repo.set_user_role(user_id, role_ru, "Одобрен")
-        await callback.message.edit_text(f"Права {role_ru} успешно выданы пользователю (ID: {user_id}).")
+        await callback.message.edit_text(
+            f"✅ Внутренние права бота (<b>{role_ru}</b>) успешно выданы пользователю (ID: <code>{user_id}</code>).",
+            parse_mode="HTML")
     except Exception as e:
-        await callback.message.edit_text(f"Ошибка выдачи прав Telegram: {e}")
+        await callback.message.edit_text(f"❌ Ошибка обновления базы данных: {e}")
 
 @router.callback_query(F.data.startswith("role_reject:"))
 async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
@@ -93,3 +96,62 @@ async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
     user_id = int(uid_str)
     await user_repo.set_user_role(user_id, "Участник", "Отклонен")
     await callback.message.edit_text(f"Запрос на выдачу прав (ID: {user_id}) отклонен.")
+
+@router.message(F.text.lower().startswith(("запросы", "/запросы")))
+async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserRepository, brawl_client: BrawlAPIClient):
+    # Команда доступна только Главару и Разработчикам
+    if not is_tech_admin(message.from_user.id):
+        return
+
+    db_users = await user_repo.get_all_users_for_roles()
+    pending_users = [u for u in db_users if u["role_status"] == "Ожидает"]
+
+    if not pending_users:
+        sent = await message.answer("✅ В базе нет пользователей, ожидающих подтверждения звания.")
+        asyncio.create_task(asyncio.sleep(30))  # Простая задержка
+        try:
+            await sent.delete()
+        except:
+            pass
+        return
+
+    wait_msg = await message.answer("⏳ Проверяю актуальные звания в клубе...")
+    members, _ = await brawl_client.get_all_club_members()
+
+    role_translation = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
+                        "member": "Участник"}
+    api_roles = {m["tag"]: role_translation.get(m.get("role", "member"), "Участник") for m in members}
+
+    count = 0
+    for user in pending_users:
+        u_id = user["user_id"]
+        tag = user["tag"]
+        tg_name = user["tg_name"]
+        player_name = user["name"]
+        club_name = user["club_name"]
+
+        api_role = api_roles.get(tag)
+
+        # Если игрок вышел из клуба или потерял пост, сбрасываем статус "Ожидает"
+        if not api_role or api_role not in ["Президент", "Вице-президент"]:
+            await user_repo.set_user_role(u_id, api_role if api_role else "Гость", "Одобрен")
+            continue
+
+        display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
+        role_eng = "president" if api_role == "Президент" else "vicePresident"
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Да", callback_data=f"role_approve:{u_id}:{role_eng}")],
+            [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]
+        ])
+
+        msg_text = f"🔄 <b>ПОВТОРНЫЙ ЗАПРОС</b>\n\n👤 {display_tg} (ID: <code>{u_id}</code>)\n🎮 Игрок: <b>{player_name}</b> (<code>{tag}</code>)\n🏰 Клуб: <b>{club_name}</b>\n\nОжидает подтверждения звания <b>{api_role}</b>. Выдаем права модератора?"
+
+        try:
+            if settings.FOUNDER_ID:
+                await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb, parse_mode="HTML")
+                count += 1
+        except Exception as e:
+            pass  # Если у бота нет прав писать Главару в ЛС (например, Главарь его заблокировал)
+
+    await wait_msg.edit_text(f"✅ Актуальные запросы ({count} шт.) отправлены Главару в ЛС.")

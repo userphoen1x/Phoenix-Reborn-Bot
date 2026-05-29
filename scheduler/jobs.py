@@ -67,26 +67,21 @@ async def check_roles(bot: Bot):
 
             display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
 
+            # Игрок вышел из клуба
             if tag not in api_roles:
                 if db_role != "Гость":
                     await user_repo.set_user_role(u_id, "Гость", "Одобрен")
-                    if settings.TARGET_CHAT_ID:
-                        try:
-                            await bot.promote_chat_member(chat_id=settings.TARGET_CHAT_ID, user_id=u_id,
-                                                          can_manage_chat=False)
-                        except:
-                            pass
+                    # Убрали попытку снять права администратора в Telegram
             else:
                 api_role = api_roles[tag]
                 if api_role == db_role: continue
+
+                # Игрок получил обычное звание (Участник/Ветеран)
                 if api_role in ["Участник", "Ветеран"]:
                     await user_repo.set_user_role(u_id, api_role, "Одобрен")
-                    if settings.TARGET_CHAT_ID and db_role in ["Президент", "Вице-президент"]:
-                        try:
-                            await bot.promote_chat_member(chat_id=settings.TARGET_CHAT_ID, user_id=u_id,
-                                                          can_manage_chat=False)
-                        except:
-                            pass
+                    # Убрали попытку снять права администратора в Telegram
+
+                # Игрок получил руководящее звание (Президент/Вице-президент) - Требует аппрува Главаря
                 elif api_role in ["Президент", "Вице-президент"] and status not in ["Ожидает", "Отклонен"]:
                     await user_repo.set_user_role(u_id, db_role, "Ожидает")
                     if settings.FOUNDER_ID:
@@ -94,9 +89,9 @@ async def check_roles(bot: Bot):
                         kb = InlineKeyboardMarkup(inline_keyboard=[
                             [InlineKeyboardButton(text="Да", callback_data=f"role_approve:{u_id}:{role_eng}")],
                             [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]])
-                        msg_text = f"{display_tg} ({u_id}) зарегистрировался с помощью тега {tag} (Игрок {player_name}, клуб {club_name}) и получил звание {api_role}. Подтверждаете выдачу прав?"
+                        msg_text = f"👤 {display_tg} (ID: <code>{u_id}</code>)\\n🎮 Игрок: <b>{player_name}</b> (<code>{tag}</code>)\\n🏰 Клуб: <b>{club_name}</b>\\n\\nПолучил звание <b>{api_role}</b> в игре. Подтверждаете выдачу внутренних модераторских прав в боте?"
                         try:
-                            await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb)
+                            await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb, parse_mode="HTML")
                         except:
                             pass
 

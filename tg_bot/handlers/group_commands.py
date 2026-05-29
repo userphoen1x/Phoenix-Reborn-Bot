@@ -140,7 +140,6 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
         parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
-
 @router.message(
     F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
