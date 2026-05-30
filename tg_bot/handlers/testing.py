@@ -56,3 +56,24 @@ async def cmd_test_cooldown(message: Message, eco_repo: EconomyRepository):
         await message.answer("⏳ <b>[SANDBOX]</b> Кулдаун на /ворк сброшен.")
     except Exception as e:
         await message.answer(f"❌ <b>[SANDBOX]</b> Ошибка: {e}", parse_mode="HTML")
+
+
+@router.message(F.text.lower().startswith("снять читы"))
+async def cmd_remove_cheats(message: Message, eco_repo: EconomyRepository):
+    # Команда: снять читы @username
+    parts = message.text.split()
+    if len(parts) < 2: return
+
+    target_username = parts[1].replace("@", "")
+    all_users = await eco_repo.get_all_users()  # или нужный метод поиска из user_repo
+
+    target_id = None
+    for u in all_users:
+        if u.get("tg_name", "").lower() == target_username.lower():
+            target_id = u["user_id"]
+            break
+
+    if target_id:
+        # Принудительно ставим стартовый баланс (например, 1000)
+        await eco_repo.set_eco_data(target_id, "balance", 1000)
+        await message.answer(f"✅ Баланс игрока @{target_username} сброшен до 1000 ₣.")
