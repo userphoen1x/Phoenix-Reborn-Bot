@@ -14,6 +14,7 @@ from tg_bot.middlewares.db_middleware import ServicesMiddleware
 from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
+from tg_bot.handlers import testing
 
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat
 
@@ -49,6 +50,7 @@ async def main():
     dp.include_router(registration.router)
     dp.include_router(group_events.router)
     dp.include_router(group_commands.router)
+    dp.include_router(testing.router)
     dp.include_router(ai_chat.router)
 
     try:
