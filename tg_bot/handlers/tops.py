@@ -80,7 +80,7 @@ def kb_wins(uid: int, c: str):
 def kb_wins_sd(uid: int, c: str):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👥 Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack()), InlineKeyboardButton(text="👤 Соло", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())], [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="wins", uid=uid, c=c).pack())]])
 
-@router.message(lambda msg: is_cmd(msg.text, ["топ", "top", "топ10", "top10", "топ 10", "top 10"]))
+@router.message(F.text.func(lambda text: is_cmd(text, ["топ", "top", "топ10", "top10", "топ 10", "top 10"])))
 async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):
     text = message.text.lower().strip()
     for prefix in ["топ 10", "top 10", "топ10", "top10", "топ", "top"]:
@@ -109,7 +109,6 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     if is_push_direct:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
-            # ЗДЕСЬ ВОЗВРАЩЕН БЫСТРЫЙ МЕТОД
             live_members, err = await brawl_client.get_all_club_members(c)
             if not live_members or not isinstance(live_members, list):
                 await sent_msg.edit_text("❌ Ошибка загрузки данных из API.", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -187,9 +186,8 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     elif args_str in cups_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
         try:
-            # ЗДЕСЬ ВОЗВРАЩЕН БЫСТРЫЙ МЕТОД
             members, err = await brawl_client.get_all_club_members(c)
-            if not members or not isinstance(members, list):
+            if not members or not isinstance(members, list): 
                 await sent_msg.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
@@ -219,7 +217,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
         try:
             members, err = await brawl_client.get_live_club_detailed_stats(c)
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
-            if not members or not isinstance(members, list):
+            if not members or not isinstance(members, list): 
                 await sent_msg.edit_text("❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0), reverse=True)
@@ -289,7 +287,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
-            # ЗДЕСЬ ВОЗВРАЩЕН БЫСТРЫЙ МЕТОД
             members, err = await brawl_client.get_all_club_members(c)
             if not members or not isinstance(members, list):
                 await callback.message.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -377,7 +374,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
-            # ЗДЕСЬ ВОЗВРАЩЕН БЫСТРЫЙ МЕТОД
             live_members, err = await brawl_client.get_all_club_members(c)
             if not live_members or not isinstance(live_members, list):
                 await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
