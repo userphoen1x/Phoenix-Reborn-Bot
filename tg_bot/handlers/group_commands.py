@@ -4,7 +4,6 @@ import string
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.types import Message, ChatPermissions, LinkPreviewOptions
-from aiogram.filters import Command
 from database.repositories.user_repo import UserRepository
 from utils.admin_logger import send_log
 from core.config import settings
@@ -28,8 +27,6 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     for c in cmds:
-        # Регулярка требует, чтобы команда была самостоятельным словом (после нее пробел, знак препинания или конец строки)
-        # Это защищает от ложных срабатываний на "мутный", "банный", "кикнул"
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
         if re.match(pattern, t):
             return True
@@ -44,75 +41,35 @@ async def delete_later(message: Message, delay: int = 10800):
         pass
 
 
-@router.message(Command("id"))
-async def cmd_get_topic_id(message: Message):
-    if message.message_thread_id:
-        await message.answer(f"ID этого топика: <code>{message.message_thread_id}</code>", parse_mode="HTML")
-    else:
-        await message.answer(f"ID этого чата: <code>{message.chat.id}</code>", parse_mode="HTML")
-
-
-@router.message(Command("force_scan"))
-async def admin_force_scan(message: Message):
-    if str(message.from_user.id) not in settings.DEVELOPER_IDS and str(
-        message.from_user.id) != settings.FOUNDER_ID: return
-    sent_msg = await message.answer("⏳ Собираю данные...")
-    from scheduler.jobs import collect_daily_stats
-    await collect_daily_stats()
-    await sent_msg.edit_text("✅ Готово")
-    asyncio.create_task(delete_later(sent_msg, 60))
-
-
-@router.message(Command("all_reg_list"))
-async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
-    a_role = await user_repo.get_user_role(message.from_user.id)
-    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
-    is_dev = str(message.from_user.id) in settings.DEVELOPER_IDS
-    if not is_founder and not is_dev and a_role not in ["Президент", "Вице-президент"]: return
-
-    users = await user_repo.get_all_registered_users()
-    if not users:
-        sent = await message.answer("📭 Список зарегистрированных пользователей пуст.")
-        asyncio.create_task(delete_later(sent, 60))
-        return
-    lines = ["📋 <b>Список зарегистрированных игроков:</b>\n"]
-    for i, (tg_name, tag, player_name) in enumerate(users, 1):
-        name_str = tg_name if tg_name.startswith("@") else f"<b>{tg_name}</b>"
-        lines.append(f"{i}. {name_str} привязан к тегу {tag} ({player_name})")
-    text = "\n".join(lines)
-    for x in range(0, len(text), 4000):
-        sent = await message.answer(text[x:x + 4000], parse_mode="HTML",
-                                    link_preview_options=LinkPreviewOptions(is_disabled=True))
-        asyncio.create_task(delete_later(sent, 10800))
-    try:
-        await message.delete()
-    except:
-        pass
-
-
 @router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])))
 async def cmd_demote(message: Message, user_repo: UserRepository):
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
     if not is_founder and a_role != "Президент": return
 
-    parts = message.text.split()
     target_id, target_name = None, None
+    
+    # Реакция через ответ на сообщение (reply)
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
-    elif len(parts) > 1 and parts[1].startswith("@"):
-        target_username = parts[1]
-        all_users = await user_repo.get_all_users_for_roles()
-        for u in all_users:
-            if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
-                target_id = u["user_id"]
-                target_name = target_username
-                break
+    else:
+        # Поддержка тегов оставлена как запасной вариант
+        parts = message.text.split()
+        if len(parts) > 1 and parts[1].startswith("@"):
+            target_username = parts[1]
+            all_users = await user_repo.get_all_users_for_roles()
+            for u in all_users:
+                if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+                    target_id = u["user_id"]
+                    target_name = target_username
+                    break
+
     if not target_id:
-        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
+        sent = await message.answer("❌ Ответьте на сообщение пользователя, чтобы понизить его.")
         asyncio.create_task(delete_later(sent, 60))
         return
+        
     await user_repo.set_user_role(target_id, "Гость", "Отклонен")
     sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
                                 parse_mode="HTML")
@@ -125,23 +82,28 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
     if not is_founder and a_role != "Президент": return
 
-    parts = message.text.split()
     target_id, target_name = None, None
+    
+    # Реакция через ответ на сообщение (reply)
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
-    elif len(parts) > 2 and parts[-1].startswith("@"):
-        target_username = parts[-1]
-        all_users = await user_repo.get_all_users_for_roles()
-        for u in all_users:
-            if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
-                target_id = u["user_id"]
-                target_name = target_username
-                break
+    else:
+        parts = message.text.split()
+        if len(parts) > 2 and parts[-1].startswith("@"):
+            target_username = parts[-1]
+            all_users = await user_repo.get_all_users_for_roles()
+            for u in all_users:
+                if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+                    target_id = u["user_id"]
+                    target_name = target_username
+                    break
+
     if not target_id:
-        sent = await message.answer("❌ Укажите @username или ответьте на сообщение.")
+        sent = await message.answer("❌ Ответьте на сообщение пользователя, чтобы вернуть ему звание.")
         asyncio.create_task(delete_later(sent, 60))
         return
+        
     await user_repo.set_user_role(target_id, "Участник", "Одобрен")
     sent = await message.answer(
         f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
@@ -168,12 +130,10 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     target_name = None
     reason_start_idx = 1
 
-    # 1. Поиск цели (реплай или тег)
     if message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         u = message.reply_to_message.from_user
         target_name = f"@{u.username}" if u.username else u.full_name
-        # Если ответили реплаем, но всё равно написали тег (@user) после команды
         if len(parts) > 1 and parts[1].startswith("@"):
             reason_start_idx = 2
     elif len(parts) > 1 and parts[1].startswith("@"):
@@ -197,7 +157,6 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    # 2. Умный парсинг времени
     remaining_parts = parts[reason_start_idx:]
     parsed_minutes = None
     time_str = "10 минут"
@@ -228,12 +187,9 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         reason_parts = remaining_parts
     elif cmd in ["мут", "mute"] and remaining_parts:
         first_word = remaining_parts[0].lower()
-        
-        # Если время указано одним словом ("час", "минута")
         if first_word in implicit_time_map:
             parsed_minutes = implicit_time_map[first_word]
             reason_parts = remaining_parts[1:]
-        # Если время указано слитно ("10м", "2ч", "1d")
         elif any(first_word.endswith(s) and first_word[:-len(s)].isdigit() for s in time_units_map.keys()):
             for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
                 if first_word.endswith(suffix):
@@ -242,7 +198,6 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
                         parsed_minutes = int(val_str) * multiplier
                         reason_parts = remaining_parts[1:]
                         break
-        # Если время указано раздельно ("10 минут", "2 часа") или просто цифра ("10")
         elif first_word.isdigit():
             val = int(first_word)
             if len(remaining_parts) > 1:
@@ -252,7 +207,6 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
                     if second_word == suffix or second_word.startswith(suffix):
                         matched_multiplier = multiplier
                         break
-                
                 if matched_multiplier:
                     parsed_minutes = val * matched_multiplier
                     reason_parts = remaining_parts[2:]
@@ -266,14 +220,13 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             reason_parts = remaining_parts
 
     if cmd in ["мут", "mute"] and parsed_minutes is None:
-        parsed_minutes = 10 # Дефолт, если время не найдено
+        parsed_minutes = 10 
 
     dt = None
     if parsed_minutes == 0:
         time_str = "навсегда"
     elif parsed_minutes is not None:
         dt = timedelta(minutes=parsed_minutes)
-        # Склонение времени для вывода в чат
         if parsed_minutes < 60:
             m = parsed_minutes
             if m % 10 == 1 and m % 100 != 11: time_str = f"{m} минуту"
