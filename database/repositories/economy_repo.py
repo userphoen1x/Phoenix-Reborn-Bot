@@ -7,11 +7,18 @@ class EconomyRepository:
         self.db = db
 
     async def get_eco_data(self, user_id: int) -> Optional[Dict[str, Any]]:
-        query = "SELECT t.balance, t.xp, t.level, t.bot_class, t.last_work, t.inventory, u.bs_tag FROM tg_profiles t LEFT JOIN users u ON t.user_id = u.user_id WHERE t.user_id = ?"
+        # Из запроса удалены t.xp и t.level
+        query = "SELECT t.balance, t.bot_class, t.last_work, t.inventory, u.bs_tag FROM tg_profiles t LEFT JOIN users u ON t.user_id = u.user_id WHERE t.user_id = ?"
         async with self.db.execute(query, (user_id,)) as cursor:
             row = await cursor.fetchone()
             if row:
-                return {"balance": row[0], "xp": row[1], "level": row[2], "bot_class": row[3], "last_work": row[4], "inventory": json.loads(row[5]) if row[5] else {}, "bs_tag": row[6]}
+                return {
+                    "balance": row[0], 
+                    "bot_class": row[1], 
+                    "last_work": row[2], 
+                    "inventory": json.loads(row[3]) if row[3] else {}, 
+                    "bs_tag": row[4]
+                }
             return None
 
     async def update_balance(self, user_id: int, amount: int):
