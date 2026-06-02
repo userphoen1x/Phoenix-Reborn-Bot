@@ -47,26 +47,30 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
     if not is_founder and a_role != "Президент": return
 
+    parts = message.text.split()
     target_id, target_name = None, None
     
-    # Реакция через ответ на сообщение (reply)
-    if message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
-    else:
-        # Поддержка тегов оставлена как запасной вариант
-        parts = message.text.split()
-        if len(parts) > 1 and parts[1].startswith("@"):
-            target_username = parts[1]
-            all_users = await user_repo.get_all_users_for_roles()
-            for u in all_users:
-                if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+    # Ищем тег в тексте команды
+    target_username = next((word for word in parts[1:] if word.startswith("@")), None)
+
+    # 1. Приоритет тегу (если написан @user, то применяем к нему, игнорируя реплай)
+    if target_username:
+        all_users = await user_repo.get_all_users_for_roles()
+        for u in all_users:
+            tg_name = u.get("tg_name", "")
+            if tg_name:
+                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+                if check_name == target_username.lower():
                     target_id = u["user_id"]
                     target_name = target_username
                     break
+    # 2. Если тега нет, проверяем ответ на сообщение
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
 
     if not target_id:
-        sent = await message.answer("❌ Ответьте на сообщение пользователя, чтобы понизить его.")
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent, 60))
         return
         
@@ -82,25 +86,30 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
     if not is_founder and a_role != "Президент": return
 
+    parts = message.text.split()
     target_id, target_name = None, None
     
-    # Реакция через ответ на сообщение (reply)
-    if message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
-    else:
-        parts = message.text.split()
-        if len(parts) > 2 and parts[-1].startswith("@"):
-            target_username = parts[-1]
-            all_users = await user_repo.get_all_users_for_roles()
-            for u in all_users:
-                if u["tg_name"] and target_username.lower() in u["tg_name"].lower():
+    # Ищем тег в тексте команды
+    target_username = next((word for word in parts[1:] if word.startswith("@")), None)
+
+    # 1. Приоритет тегу
+    if target_username:
+        all_users = await user_repo.get_all_users_for_roles()
+        for u in all_users:
+            tg_name = u.get("tg_name", "")
+            if tg_name:
+                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
+                if check_name == target_username.lower():
                     target_id = u["user_id"]
                     target_name = target_username
                     break
+    # 2. Если тега нет, проверяем ответ на сообщение
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
 
     if not target_id:
-        sent = await message.answer("❌ Ответьте на сообщение пользователя, чтобы вернуть ему звание.")
+        sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent, 60))
         return
         
@@ -109,6 +118,7 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
         f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
         parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
+
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])))
