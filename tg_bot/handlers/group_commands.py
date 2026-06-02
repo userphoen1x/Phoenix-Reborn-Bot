@@ -27,6 +27,7 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     for c in cmds:
+        # Проверяем, что команда - это самостоятельное слово
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
         if re.match(pattern, t):
             return True
@@ -50,10 +51,9 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
     parts = message.text.split()
     target_id, target_name = None, None
     
-    # Ищем тег в тексте команды
+    # 1. Приоритет тегу (ищем @username в тексте команды)
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
 
-    # 1. Приоритет тегу (если написан @user, то применяем к нему, игнорируя реплай)
     if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
@@ -64,7 +64,7 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
                     target_id = u["user_id"]
                     target_name = target_username
                     break
-    # 2. Если тега нет, проверяем ответ на сообщение
+    # 2. Если тега нет, проверяем ответ на сообщение (реплай)
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -89,10 +89,9 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     parts = message.text.split()
     target_id, target_name = None, None
     
-    # Ищем тег в тексте команды
+    # 1. Приоритет тегу (ищем @username в тексте команды)
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
 
-    # 1. Приоритет тегу
     if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
@@ -103,7 +102,7 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
                     target_id = u["user_id"]
                     target_name = target_username
                     break
-    # 2. Если тега нет, проверяем ответ на сообщение
+    # 2. Если тега нет, проверяем ответ на сообщение (реплай)
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -118,7 +117,6 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
         f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
         parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
-
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])))
@@ -138,16 +136,11 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
 
     target_id = None
     target_name = None
-    reason_start_idx = 1
 
-    if message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        u = message.reply_to_message.from_user
-        target_name = f"@{u.username}" if u.username else u.full_name
-        if len(parts) > 1 and parts[1].startswith("@"):
-            reason_start_idx = 2
-    elif len(parts) > 1 and parts[1].startswith("@"):
-        target_username = parts[1]
+    # 1. Поиск тега в тексте (высший приоритет)
+    target_username = next((word for word in parts[1:] if word.startswith("@")), None)
+    
+    if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
             tg_name = u.get("tg_name", "")
@@ -161,13 +154,20 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
             asyncio.create_task(delete_later(sent_msg, 60))
             return
-        reason_start_idx = 2
+            
+    # 2. Если тега нет, берем данные из реплая
+    elif message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        u = message.reply_to_message.from_user
+        target_name = f"@{u.username}" if u.username else u.full_name
     else:
         sent_msg = await message.answer("❌ Ответьте на сообщение пользователя или укажите его @username.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    remaining_parts = parts[reason_start_idx:]
+    # Очищаем части от тега (чтобы он не попал в парсинг времени или причины)
+    clean_parts = [p for p in parts[1:] if p != target_username]
+
     parsed_minutes = None
     time_str = "10 минут"
     reason_parts = []
@@ -194,24 +194,24 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if cmd in ["бан", "ban"]:
         parsed_minutes = 0
         time_str = "навсегда"
-        reason_parts = remaining_parts
-    elif cmd in ["мут", "mute"] and remaining_parts:
-        first_word = remaining_parts[0].lower()
+        reason_parts = clean_parts
+    elif cmd in ["мут", "mute"] and clean_parts:
+        first_word = clean_parts[0].lower()
         if first_word in implicit_time_map:
             parsed_minutes = implicit_time_map[first_word]
-            reason_parts = remaining_parts[1:]
+            reason_parts = clean_parts[1:]
         elif any(first_word.endswith(s) and first_word[:-len(s)].isdigit() for s in time_units_map.keys()):
             for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
                 if first_word.endswith(suffix):
                     val_str = first_word[:-len(suffix)]
                     if val_str.isdigit():
                         parsed_minutes = int(val_str) * multiplier
-                        reason_parts = remaining_parts[1:]
+                        reason_parts = clean_parts[1:]
                         break
         elif first_word.isdigit():
             val = int(first_word)
-            if len(remaining_parts) > 1:
-                second_word = remaining_parts[1].lower()
+            if len(clean_parts) > 1:
+                second_word = clean_parts[1].lower()
                 matched_multiplier = None
                 for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
                     if second_word == suffix or second_word.startswith(suffix):
@@ -219,15 +219,15 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
                         break
                 if matched_multiplier:
                     parsed_minutes = val * matched_multiplier
-                    reason_parts = remaining_parts[2:]
+                    reason_parts = clean_parts[2:]
                 else:
                     parsed_minutes = val
-                    reason_parts = remaining_parts[1:]
+                    reason_parts = clean_parts[1:]
             else:
                 parsed_minutes = val
-                reason_parts = remaining_parts[1:]
+                reason_parts = clean_parts[1:]
         else:
-            reason_parts = remaining_parts
+            reason_parts = clean_parts
 
     if cmd in ["мут", "mute"] and parsed_minutes is None:
         parsed_minutes = 10 
