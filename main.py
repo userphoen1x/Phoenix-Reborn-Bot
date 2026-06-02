@@ -16,9 +16,8 @@ from tg_bot.middlewares.antispam import AntiSpamMiddleware
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
 
 async def main():
-    # Параметр force=True принудительно применяет наши настройки логов
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.INFO, 
         format="%(asctime)s - %(levelname)s - %(message)s",
         force=True
     )
@@ -50,8 +49,8 @@ async def main():
     dp.include_router(registration.router)
     dp.include_router(group_events.router)
     dp.include_router(group_commands.router)
-    dp.include_router(ai_chat.router)
     dp.include_router(tops.router)
+    dp.include_router(ai_chat.router)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -59,18 +58,17 @@ async def main():
                 if resp.status == 200:
                     ip = await resp.text()
                     logging.info(f"🌐 Текущий IP-адрес сервера: {ip}")
-                    print(f"🌐 Текущий IP-адрес сервера: {ip}") # Обычный принт для надежности
+                    print(f"🌐 Текущий IP-адрес сервера: {ip}")
                 else:
                     logging.warning(f"Не удалось получить IP, статус: {resp.status}")
     except Exception as e:
         logging.warning(f"Ошибка при получении IP: {e}")
 
     logging.info("🚀 БОТ УСПЕШНО ЗАПУЩЕН")
-    print("🚀 БОТ УСПЕШНО ЗАПУЩЕН") # Обычный принт для надежности
+    print("🚀 БОТ УСПЕШНО ЗАПУЩЕН")
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"])
-
 
 if __name__ == "__main__":
     try:
