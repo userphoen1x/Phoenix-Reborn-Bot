@@ -107,38 +107,52 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
 
     if is_push_direct:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        live_members, err = await brawl_client.get_live_club_detailed_stats(c)
-        if not live_members:
-            await sent_msg.edit_text("❌ Ошибка загрузки данных из API.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-            asyncio.create_task(delete_later(sent_msg, 60))
-            return
-        tags_filter = [m["tag"] for m in live_members]
-        baseline_map = await chat_repo.get_baseline_trophies(push_days, tags_filter)
-        results = []
-        for m in live_members:
-            tag = m["tag"]
-            live_cups = m.get("trophies", 0)
-            baseline = baseline_map.get(tag, live_cups)
-            gain = live_cups - baseline
-            if gain > 0: results.append((m["name"], gain, tag))
-        results.sort(key=lambda x: x[1], reverse=True)
-        results = results[:10]
-        tg_map = await user_repo.get_tag_to_tg_map()
-        uids = [tg_map.get(tag_str, {}).get("id") for _, _, tag_str in results]
-        syms_list = await get_roles_bulk(uids, user_repo)
-        txt = f"🏆 <b>Топ пушеров ({push_title})</b>\n\n"
-        for i, (n, v, tag_str) in enumerate(results):
-            tg_data = tg_map.get(tag_str)
-            t_uid = tg_data["id"] if tg_data else None
-            tg_name = tg_data["name"] if tg_data else None
-            sym = syms_list[i]
-            name_link = make_link(n, tg_name, t_uid)
-            place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-        if not results: txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
-        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]])
-        await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
-        asyncio.create_task(delete_later(sent_msg))
+        try:
+            live_members, err = await brawl_client.get_live_club_detailed_stats(c)
+            if not live_members or not isinstance(live_members, list):
+                await sent_msg.edit_text("❌ Ошибка загрузки данных из API.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+                asyncio.create_task(delete_later(sent_msg, 60))
+                return
+            tags_filter = [m.get("tag") for m in live_members if isinstance(m, dict) and m.get("tag")]
+            baseline_map = await chat_repo.get_baseline_trophies(push_days, tags_filter)
+            results = []
+            for m in live_members:
+                if not isinstance(m, dict):
+                    continue
+                tag = m.get("tag")
+                if not tag:
+                    continue
+                live_cups = int(m.get("trophies", 0) or 0)
+                base_raw = baseline_map.get(tag)
+                baseline = int(base_raw) if base_raw is not None else live_cups
+                gain = live_cups - baseline
+                if gain > 0:
+                    results.append((m.get("name", "Игрок"), gain, tag))
+            results.sort(key=lambda x: x[1], reverse=True)
+            results = results[:10]
+            tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+            uids = []
+            for _, _, tag_str in results:
+                tg_data = tg_map.get(tag_str)
+                uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
+            syms_list = await get_roles_bulk(uids, user_repo)
+            txt = f"🏆 <b>Топ пушеров ({push_title})</b>\n\n"
+            for i, (n, v, tag_str) in enumerate(results):
+                tg_data = tg_map.get(tag_str)
+                t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
+                sym = syms_list[i]
+                name_link = make_link(n, tg_name, t_uid)
+                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
+            if not results:
+                txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
+            back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]])
+            await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            asyncio.create_task(delete_later(sent_msg))
+        except Exception as e:
+            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
+            asyncio.create_task(delete_later(sent_msg))
         return
 
     msg_triggers = {"смс", "соо", "сообщение", "сообщения", "sms", "msg", "messages", "чат", "флуд", "писари"}
@@ -169,48 +183,64 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
         sent_msg = await message.answer(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
-        members, err = await brawl_client.get_live_club_detailed_stats(c)
-        if not members: await sent_msg.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        else:
-            members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
-            tg_map = await user_repo.get_tag_to_tg_map()
-            top_10 = members[:10]
-            uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
-            syms_list = await get_roles_bulk(uids, user_repo)
-            res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
-            for i, m in enumerate(top_10):
-                tg_data = tg_map.get(m["tag"])
-                t_uid = tg_data["id"] if tg_data else None
-                tg_name = tg_data["name"] if tg_data else None
-                sym = syms_list[i]
-                name_link = make_link(m['name'], tg_name, t_uid)
-                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-                res += f"{place} {sym} {name_link}: {m['trophies']}\n"
-            await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            members, err = await brawl_client.get_live_club_detailed_stats(c)
+            if not members or not isinstance(members, list):
+                await sent_msg.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+            else:
+                members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
+                tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+                top_10 = members[:10]
+                uids = []
+                for m in top_10:
+                    tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
+                    uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
+                syms_list = await get_roles_bulk(uids, user_repo)
+                res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
+                for i, m in enumerate(top_10):
+                    if not isinstance(m, dict): continue
+                    tg_data = tg_map.get(m.get("tag"))
+                    t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                    tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
+                    sym = syms_list[i]
+                    name_link = make_link(m.get('name', 'Игрок'), tg_name, t_uid)
+                    place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                    res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
+                await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
-        members, err = await brawl_client.get_live_club_detailed_stats(c)
-        tg_map = await user_repo.get_tag_to_tg_map()
-        if not members: await sent_msg.edit_text("❌ Ошибка.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        else:
-            members.sort(key=lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0)), reverse=True)
-            top_10 = members[:10]
-            uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
-            syms_list = await get_roles_bulk(uids, user_repo)
-            txt = f"🎖 <b>Ранкед</b>\n\n"
-            for i, m in enumerate(top_10):
-                tg_data = tg_map.get(m["tag"])
-                t_uid = tg_data["id"] if tg_data else None
-                tg_name = tg_data["name"] if tg_data else None
-                sym = syms_list[i]
-                r_val = m.get("ranked_curr_rank", 0)
-                e_val = m.get("ranked_curr_elo", 0)
-                r_name = get_rank_name(r_val)
-                name_link = make_link(m['name'], tg_name, t_uid)
-                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-                txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
-            if err: txt += f"\nОшибки: {err}"
-            await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            members, err = await brawl_client.get_live_club_detailed_stats(c)
+            tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+            if not members or not isinstance(members, list):
+                await sent_msg.edit_text("❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+            else:
+                members.sort(key=lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0), reverse=True)
+                top_10 = members[:10]
+                uids = []
+                for m in top_10:
+                    tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
+                    uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
+                syms_list = await get_roles_bulk(uids, user_repo)
+                txt = f"🎖 <b>Ранкед</b>\n\n"
+                for i, m in enumerate(top_10):
+                    if not isinstance(m, dict): continue
+                    tg_data = tg_map.get(m.get("tag"))
+                    t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                    tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
+                    sym = syms_list[i]
+                    r_val = int(m.get("ranked_curr_rank", 0) or 0)
+                    e_val = int(m.get("ranked_curr_elo", 0) or 0)
+                    r_name = get_rank_name(r_val)
+                    name_link = make_link(m.get('name', 'Игрок'), tg_name, t_uid)
+                    place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                    txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
+                if err: txt += f"\nОшибки: {err}"
+                await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid, brawl_client)
         sent_msg = await message.answer("📊 <b>Выберите клуб:</b>", reply_markup=kb)
@@ -233,115 +263,147 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
     elif act == "eco":
         if c != "ALL": return
         await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        data = await eco_repo.get_top_balance(10)
-        uids = [t_uid for _, _, _, t_uid in data]
-        syms_list = await get_roles_bulk(uids, user_repo)
-        txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
-        for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
-            display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-            sym = syms_list[i]
-            name_link = make_link(display_name, tg_name, t_uid)
-            place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} {name_link}: {bal} ₣\n"
-        if not data: txt += "📭 Пока никого нет."
-        back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
-        await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            data = await eco_repo.get_top_balance(10)
+            uids = [t_uid for _, _, _, t_uid in data]
+            syms_list = await get_roles_bulk(uids, user_repo)
+            txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
+            for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
+                display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
+                sym = syms_list[i]
+                name_link = make_link(display_name, tg_name, t_uid)
+                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                txt += f"{place} {sym} {name_link}: {bal} ₣\n"
+            if not data: txt += "📭 Пока никого нет."
+            back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
+            await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        members, err = await brawl_client.get_live_club_detailed_stats(c)
-        if not members:
-            await callback.message.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
-            return
-        members.sort(key=lambda x: x.get("trophies", 0), reverse=True)
-        tg_map = await user_repo.get_tag_to_tg_map()
-        top_10 = members[:10]
-        uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
-        syms_list = await get_roles_bulk(uids, user_repo)
-        res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
-        for i, m in enumerate(top_10):
-            tg_data = tg_map.get(m["tag"])
-            t_uid = tg_data["id"] if tg_data else None
-            tg_name = tg_data["name"] if tg_data else None
-            sym = syms_list[i]
-            name_link = make_link(m['name'], tg_name, t_uid)
-            place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            res += f"{place} {sym} {name_link}: {m['trophies']}\n"
-        await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            members, err = await brawl_client.get_live_club_detailed_stats(c)
+            if not members or not isinstance(members, list):
+                await callback.message.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+                return
+            members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
+            tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+            top_10 = members[:10]
+            uids = []
+            for m in top_10:
+                tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
+                uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
+            syms_list = await get_roles_bulk(uids, user_repo)
+            res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
+            for i, m in enumerate(top_10):
+                if not isinstance(m, dict): continue
+                tg_data = tg_map.get(m.get("tag"))
+                t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
+                sym = syms_list[i]
+                name_link = make_link(m.get('name', 'Игрок'), tg_name, t_uid)
+                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
+            await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        members, err = await brawl_client.get_live_club_detailed_stats(c)
-        tg_map = await user_repo.get_tag_to_tg_map()
         back_act = "wins_sd" if act.startswith("wins_sd_") else "wins" if act.startswith("wins_") else "cat"
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
-        if not members: return await callback.message.edit_text("❌ Ошибка", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
-        if act == "ranks_curr": sort_key = lambda x: (x.get("ranked_curr_rank", 0), x.get("ranked_curr_elo", 0)); title = "🎖 Ранкед"
-        elif act == "wins_3v3": sort_key = lambda x: x.get("wins_3v3", 0); title = "⚔️ 3 на 3"
-        elif act == "wins_sd_solo": sort_key = lambda x: x.get("solo_wins", 0); title = "👤 Соло"
-        elif act == "wins_sd_duo": sort_key = lambda x: x.get("duo_wins", 0); title = "👥 Дуо"
-        members.sort(key=sort_key, reverse=True)
-        top_10 = members[:10]
-        uids = [tg_map.get(m["tag"], {}).get("id") for m in top_10]
-        syms_list = await get_roles_bulk(uids, user_repo)
-        txt = f"<b>{title}</b>\n\n"
-        for i, m in enumerate(top_10):
-            tg_data = tg_map.get(m["tag"])
-            t_uid = tg_data["id"] if tg_data else None
-            tg_name = tg_data["name"] if tg_data else None
-            sym = syms_list[i]
-            name_link = make_link(m['name'], tg_name, t_uid)
-            place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            if act == "ranks_curr":
-                r_val = m.get("ranked_curr_rank", 0)
-                e_val = m.get("ranked_curr_elo", 0)
-                txt += f"{place} {sym} {name_link}: {get_rank_name(r_val)} ({e_val})\n"
-            else: txt += f"{place} {sym} {name_link}: {sort_key(m)}\n"
-        if err: txt += f"\nОшибки: {err}"
-        await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            members, err = await brawl_client.get_live_club_detailed_stats(c)
+            tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+            if not members or not isinstance(members, list): return await callback.message.edit_text("❌ Ошибка загрузки", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            if act == "ranks_curr": sort_key = lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0); title = "🎖 Ранкед"
+            elif act == "wins_3v3": sort_key = lambda x: int(x.get("wins_3v3", 0) or 0) if isinstance(x, dict) else 0; title = "⚔️ 3 на 3"
+            elif act == "wins_sd_solo": sort_key = lambda x: int(x.get("solo_wins", 0) or 0) if isinstance(x, dict) else 0; title = "👤 Соло"
+            elif act == "wins_sd_duo": sort_key = lambda x: int(x.get("duo_wins", 0) or 0) if isinstance(x, dict) else 0; title = "👥 Дуо"
+            members.sort(key=sort_key, reverse=True)
+            top_10 = members[:10]
+            uids = []
+            for m in top_10:
+                tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
+                uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
+            syms_list = await get_roles_bulk(uids, user_repo)
+            txt = f"<b>{title}</b>\n\n"
+            for i, m in enumerate(top_10):
+                if not isinstance(m, dict): continue
+                tg_data = tg_map.get(m.get("tag"))
+                t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
+                sym = syms_list[i]
+                name_link = make_link(m.get('name', 'Игрок'), tg_name, t_uid)
+                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                if act == "ranks_curr":
+                    r_val = int(m.get("ranked_curr_rank", 0) or 0)
+                    e_val = int(m.get("ranked_curr_elo", 0) or 0)
+                    txt += f"{place} {sym} {name_link}: {get_rank_name(r_val)} ({e_val})\n"
+                else: txt += f"{place} {sym} {name_link}: {sort_key(m)}\n"
+            if err: txt += f"\nОшибки: {err}"
+            await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("msg_"):
         await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
-        d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}[act]
-        data = await chat_repo.get_top_messages(d)
-        uids = [t_uid for _, _, _, t_uid in data]
-        syms_list = await get_roles_bulk(uids, user_repo)
-        txt = "💬 <b>Топ сообщений чата</b>\n\n"
-        for i, (tg_name, player_name, v, t_uid) in enumerate(data):
-            display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
-            sym = syms_list[i]
-            name_link = make_link(display_name, tg_name, t_uid)
-            place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
-            txt += f"{place} {sym} {name_link}: {v}\n"
-        await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
+        try:
+            d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}.get(act)
+            data = await chat_repo.get_top_messages(d)
+            uids = [t_uid for _, _, _, t_uid in data]
+            syms_list = await get_roles_bulk(uids, user_repo)
+            txt = "💬 <b>Топ сообщений чата</b>\n\n"
+            for i, (tg_name, player_name, v, t_uid) in enumerate(data):
+                display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
+                sym = syms_list[i]
+                name_link = make_link(display_name, tg_name, t_uid)
+                place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
+                txt += f"{place} {sym} {name_link}: {v}\n"
+            await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("cups_gain_"):
-        d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}[act]
+        d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}.get(act, 1)
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
             live_members, err = await brawl_client.get_live_club_detailed_stats(c)
-            if not live_members: return await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
-            tags_filter = [m["tag"] for m in live_members]
+            if not live_members or not isinstance(live_members, list):
+                await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
+                return
+            tags_filter = [m.get("tag") for m in live_members if isinstance(m, dict) and m.get("tag")]
             baseline_map = await chat_repo.get_baseline_trophies(d, tags_filter)
             results = []
             for m in live_members:
-                tag = m["tag"]
-                live_cups = m.get("trophies", 0)
-                baseline = baseline_map.get(tag, live_cups)
+                if not isinstance(m, dict):
+                    continue
+                tag = m.get("tag")
+                if not tag:
+                    continue
+                live_cups = int(m.get("trophies", 0) or 0)
+                base_raw = baseline_map.get(tag)
+                baseline = int(base_raw) if base_raw is not None else live_cups
                 gain = live_cups - baseline
-                if gain > 0: results.append((m["name"], gain, tag))
+                if gain > 0:
+                    results.append((m.get("name", "Игрок"), gain, tag))
             results.sort(key=lambda x: x[1], reverse=True)
             top_10 = results[:10]
-            tg_map = await user_repo.get_tag_to_tg_map()
-            uids = [tg_map.get(tag_str, {}).get("id") for _, _, tag_str in top_10]
+            tg_map = (await user_repo.get_tag_to_tg_map()) or {}
+            uids = []
+            for _, _, tag_str in top_10:
+                tg_data = tg_map.get(tag_str)
+                uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
             syms_list = await get_roles_bulk(uids, user_repo)
             txt = "📈 <b>Рост кубков</b>\n\n"
             for i, (n, v, tag_str) in enumerate(top_10):
                 tg_data = tg_map.get(tag_str)
-                t_uid = tg_data["id"] if tg_data else None
-                tg_name = tg_data["name"] if tg_data else None
+                t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
+                tg_name = tg_data.get("name") if isinstance(tg_data, dict) else None
                 sym = syms_list[i]
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-            if not top_10: txt += "📭 Пока нет данных для расчета."
+            if not top_10:
+                txt += "📭 Пока нет данных для расчета."
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
-        except Exception:
-            await callback.message.edit_text("❌ Ошибка вычислений", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+        except Exception as e:
+            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
