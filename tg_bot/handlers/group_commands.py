@@ -1,4 +1,6 @@
 import asyncio
+import re
+import string
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.types import Message, ChatPermissions, LinkPreviewOptions
@@ -25,7 +27,12 @@ def get_combined_symbols(user_id: int, game_role: str) -> str:
 def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
-    return any(t == c or t.startswith(c + " ") for c in cmds)
+    for c in cmds:
+        # Проверяем, что команда - это самостоятельное слово (после нее идет пробел, конец строки или знак препинания)
+        pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
+        if re.match(pattern, t):
+            return True
+    return False
 
 
 async def delete_later(message: Message, delay: int = 10800):
@@ -140,8 +147,8 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
         parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
-@router.message(
-    F.text.lower().startswith(("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban")))
+
+@router.message(lambda msg: is_cmd(msg.text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"]))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
 
@@ -155,7 +162,8 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         return
 
     parts = message.text.split()
-    cmd = parts[0].lower()
+    # Очищаем команду от возможных прилипших знаков препинания (например, "бан,")
+    cmd = parts[0].lower().strip(string.punctuation)
 
     target_username = None
     t_arg = None
