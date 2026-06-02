@@ -15,11 +15,13 @@ from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
 
-from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat
-
-
 async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+    # Параметр force=True принудительно применяет наши настройки логов
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        force=True
+    )
 
     if not settings.BOT_TOKEN:
         logging.error("BOT_TOKEN не найден!")
@@ -32,7 +34,6 @@ async def main():
 
     dp.update.middleware(ServicesMiddleware(db_path=settings.DB_PATH))
     dp.message.middleware(AntiSpamMiddleware())
-    dp.include_router(tops.router)
 
     @dp.errors()
     async def global_error_handler(event, data):
@@ -50,6 +51,7 @@ async def main():
     dp.include_router(group_events.router)
     dp.include_router(group_commands.router)
     dp.include_router(ai_chat.router)
+    dp.include_router(tops.router)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -57,12 +59,14 @@ async def main():
                 if resp.status == 200:
                     ip = await resp.text()
                     logging.info(f"🌐 Текущий IP-адрес сервера: {ip}")
+                    print(f"🌐 Текущий IP-адрес сервера: {ip}") # Обычный принт для надежности
                 else:
                     logging.warning(f"Не удалось получить IP, статус: {resp.status}")
     except Exception as e:
         logging.warning(f"Ошибка при получении IP: {e}")
 
     logging.info("🚀 БОТ УСПЕШНО ЗАПУЩЕН")
+    print("🚀 БОТ УСПЕШНО ЗАПУЩЕН") # Обычный принт для надежности
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot, allowed_updates=["message", "callback_query", "chat_member", "my_chat_member"])
@@ -73,3 +77,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         logging.info("🛑 Бот остановлен.")
+        print("🛑 Бот остановлен.")
