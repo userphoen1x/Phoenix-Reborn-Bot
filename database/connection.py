@@ -17,10 +17,10 @@ async def init_db():
                 await db.execute("ALTER TABLE tg_profiles ADD COLUMN role_status TEXT DEFAULT 'Одобрен'")
             except aiosqlite.OperationalError:
                 pass
+            
+            # Убрали XP и Уровень, оставили только нужные экономические колонки
             eco_cols = [
                 ("balance", "INTEGER DEFAULT 1000"),
-                ("xp", "INTEGER DEFAULT 0"),
-                ("level", "INTEGER DEFAULT 1"),
                 ("bot_class", "TEXT DEFAULT 'Новичок'"),
                 ("last_work", "TEXT DEFAULT NULL"),
                 ("inventory", "TEXT DEFAULT '{}'"),
