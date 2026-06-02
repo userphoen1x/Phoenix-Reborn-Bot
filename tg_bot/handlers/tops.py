@@ -316,7 +316,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
-            live_members, err = await brawl_client.get_all_club_members(c)
+            live_members, err = await brawl_client.get_live_club_detailed_stats(c)
             if not live_members: return await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
             tags_filter = [m["tag"] for m in live_members]
             baseline_map = await chat_repo.get_baseline_trophies(d, tags_filter)
