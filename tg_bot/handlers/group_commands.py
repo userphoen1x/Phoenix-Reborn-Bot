@@ -28,7 +28,8 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     for c in cmds:
-        # Проверяем, что команда - это самостоятельное слово (после нее идет пробел, конец строки или знак препинания)
+        # Регулярка требует, чтобы команда была самостоятельным словом (после нее пробел, знак препинания или конец строки)
+        # Это защищает от ложных срабатываний на "мутный", "банный", "кикнул"
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
         if re.match(pattern, t):
             return True
@@ -89,7 +90,7 @@ async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
         pass
 
 
-@router.message(lambda msg: is_cmd(msg.text, ["понизить", "демоут"]))
+@router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])))
 async def cmd_demote(message: Message, user_repo: UserRepository):
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
@@ -118,7 +119,7 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
     asyncio.create_task(delete_later(sent))
 
 
-@router.message(lambda msg: is_cmd(msg.text, ["вернуть звание", "восстановить", "вернуть"]))
+@router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])))
 async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
@@ -148,48 +149,35 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     asyncio.create_task(delete_later(sent))
 
 
-@router.message(lambda msg: is_cmd(msg.text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"]))
+@router.message(F.text.func(lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])))
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
 
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
 
-    # Иерархия: Главарь > Президент > Вице-президент (Разработчики вне системы модерации)
     if not is_founder and a_role not in ["Главарь", "Президент", "Вице-президент"]:
         err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
         asyncio.create_task(delete_later(err_msg, 60))
         return
 
     parts = message.text.split()
-    # Очищаем команду от возможных прилипших знаков препинания (например, "бан,")
     cmd = parts[0].lower().strip(string.punctuation)
 
-    target_username = None
-    t_arg = None
-    reason_parts = []
+    target_id = None
+    target_name = None
+    reason_start_idx = 1
 
-    # Функция-помощник для определения, является ли слово указателем времени
-    def is_time_arg(word: str) -> bool:
-        w = word.lower()
-        if w.isdigit(): return True
-        if w in ["минута", "минуту", "1м", "1m", "час", "1ч", "1h"]: return True
-        if w.endswith(("м", "ч", "m", "h")) and w[:-1].isdigit(): return True
-        return False
-
-    # Умный парсинг аргументов независимо от их порядка
-    for word in parts[1:]:
-        if word.startswith("@") and not target_username:
-            target_username = word
-        elif cmd in ["мут", "mute"] and not t_arg and is_time_arg(word):
-            t_arg = word.lower()
-        else:
-            reason_parts.append(word)
-
-    target_id, target_name = None, None
-
-    # 1. Ищем цель по тегу, если он был найден в сообщении
-    if target_username:
+    # 1. Поиск цели (реплай или тег)
+    if message.reply_to_message:
+        target_id = message.reply_to_message.from_user.id
+        u = message.reply_to_message.from_user
+        target_name = f"@{u.username}" if u.username else u.full_name
+        # Если ответили реплаем, но всё равно написали тег (@user) после команды
+        if len(parts) > 1 and parts[1].startswith("@"):
+            reason_start_idx = 2
+    elif len(parts) > 1 and parts[1].startswith("@"):
+        target_username = parts[1]
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
             tg_name = u.get("tg_name", "")
@@ -203,54 +191,104 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
             asyncio.create_task(delete_later(sent_msg, 60))
             return
-
-    # 2. Если тега не было, проверяем ответ на сообщение (reply)
-    elif message.reply_to_message:
-        target_id = message.reply_to_message.from_user.id
-        u = message.reply_to_message.from_user
-        target_name = f"@{u.username}" if u.username else u.full_name
-
-    # Если ни тега, ни реплая нет
-    if not target_id:
+        reason_start_idx = 2
+    else:
         sent_msg = await message.answer("❌ Ответьте на сообщение пользователя или укажите его @username.")
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    # Обработка времени
-    dt = timedelta(minutes=10)  # Дефолт
+    # 2. Умный парсинг времени
+    remaining_parts = parts[reason_start_idx:]
+    parsed_minutes = None
     time_str = "10 минут"
+    reason_parts = []
+
+    time_units_map = {
+        "м": 1, "m": 1, "мин": 1, "минут": 1, "минуту": 1, "минута": 1, "минуты": 1,
+        "ч": 60, "h": 60, "час": 60, "часа": 60, "часов": 60,
+        "д": 1440, "d": 1440, "день": 1440, "дня": 1440, "дней": 1440, "сут": 1440, "сутки": 1440,
+        "н": 10080, "w": 10080, "нед": 10080, "неделю": 10080, "недели": 10080, "недель": 10080,
+        "мес": 43200, "месяц": 43200, "месяца": 43200, "месяцев": 43200,
+        "г": 525600, "y": 525600, "год": 525600, "года": 525600, "лет": 525600
+    }
+
+    implicit_time_map = {
+        "минута": 1, "минуту": 1,
+        "час": 60,
+        "день": 1440, "сутки": 1440,
+        "неделя": 10080, "неделю": 10080,
+        "месяц": 43200,
+        "год": 525600,
+        "навсегда": 0, "пермач": 0
+    }
 
     if cmd in ["бан", "ban"]:
-        dt = None
+        parsed_minutes = 0
         time_str = "навсегда"
-    elif cmd in ["мут", "mute"] and t_arg:
-        parsed_mins = None
-        if t_arg.isdigit():
-            parsed_mins = int(t_arg)
-        elif t_arg in ["минута", "минуту", "1м", "1m"]:
-            parsed_mins = 1
-        elif t_arg in ["час", "1ч", "1h"]:
-            parsed_mins = 60
-        elif t_arg.endswith("м") and t_arg[:-1].isdigit():
-            parsed_mins = int(t_arg[:-1])
-        elif t_arg.endswith("ч") and t_arg[:-1].isdigit():
-            parsed_mins = int(t_arg[:-1]) * 60
-        elif t_arg.endswith("m") and t_arg[:-1].isdigit():
-            parsed_mins = int(t_arg[:-1])
-        elif t_arg.endswith("h") and t_arg[:-1].isdigit():
-            parsed_mins = int(t_arg[:-1]) * 60
-
-        if parsed_mins is not None:
-            dt_minutes = max(1, parsed_mins)
-            dt = timedelta(minutes=dt_minutes)
-
-            # Правильное склонение минут
-            if dt_minutes % 10 == 1 and dt_minutes % 100 != 11:
-                time_str = f"{dt_minutes} минуту"
-            elif 2 <= dt_minutes % 10 <= 4 and not (12 <= dt_minutes % 100 <= 14):
-                time_str = f"{dt_minutes} минуты"
+        reason_parts = remaining_parts
+    elif cmd in ["мут", "mute"] and remaining_parts:
+        first_word = remaining_parts[0].lower()
+        
+        # Если время указано одним словом ("час", "минута")
+        if first_word in implicit_time_map:
+            parsed_minutes = implicit_time_map[first_word]
+            reason_parts = remaining_parts[1:]
+        # Если время указано слитно ("10м", "2ч", "1d")
+        elif any(first_word.endswith(s) and first_word[:-len(s)].isdigit() for s in time_units_map.keys()):
+            for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
+                if first_word.endswith(suffix):
+                    val_str = first_word[:-len(suffix)]
+                    if val_str.isdigit():
+                        parsed_minutes = int(val_str) * multiplier
+                        reason_parts = remaining_parts[1:]
+                        break
+        # Если время указано раздельно ("10 минут", "2 часа") или просто цифра ("10")
+        elif first_word.isdigit():
+            val = int(first_word)
+            if len(remaining_parts) > 1:
+                second_word = remaining_parts[1].lower()
+                matched_multiplier = None
+                for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
+                    if second_word == suffix or second_word.startswith(suffix):
+                        matched_multiplier = multiplier
+                        break
+                
+                if matched_multiplier:
+                    parsed_minutes = val * matched_multiplier
+                    reason_parts = remaining_parts[2:]
+                else:
+                    parsed_minutes = val
+                    reason_parts = remaining_parts[1:]
             else:
-                time_str = f"{dt_minutes} минут"
+                parsed_minutes = val
+                reason_parts = remaining_parts[1:]
+        else:
+            reason_parts = remaining_parts
+
+    if cmd in ["мут", "mute"] and parsed_minutes is None:
+        parsed_minutes = 10 # Дефолт, если время не найдено
+
+    dt = None
+    if parsed_minutes == 0:
+        time_str = "навсегда"
+    elif parsed_minutes is not None:
+        dt = timedelta(minutes=parsed_minutes)
+        # Склонение времени для вывода в чат
+        if parsed_minutes < 60:
+            m = parsed_minutes
+            if m % 10 == 1 and m % 100 != 11: time_str = f"{m} минуту"
+            elif 2 <= m % 10 <= 4 and not (12 <= m % 100 <= 14): time_str = f"{m} минуты"
+            else: time_str = f"{m} минут"
+        elif parsed_minutes < 1440:
+            h = parsed_minutes // 60
+            if h % 10 == 1 and h % 100 != 11: time_str = f"{h} час"
+            elif 2 <= h % 10 <= 4 and not (12 <= h % 100 <= 14): time_str = f"{h} часа"
+            else: time_str = f"{h} часов"
+        else:
+            d = parsed_minutes // 1440
+            if d % 10 == 1 and d % 100 != 11: time_str = f"{d} день"
+            elif 2 <= d % 10 <= 4 and not (12 <= d % 100 <= 14): time_str = f"{d} дня"
+            else: time_str = f"{d} дней"
 
     reason = " ".join(reason_parts) if reason_parts else "Не указана"
 
@@ -265,7 +303,7 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         if cmd in ["мут", "mute"]:
             await bot.restrict_chat_member(message.chat.id, target_id,
                                            permissions=ChatPermissions(can_send_messages=False),
-                                           until_date=datetime.now() + dt)
+                                           until_date=datetime.now() + dt if dt else None)
             action_pub = f"лишен права голоса на {time_str}"
             emoji = "🔇"
         elif cmd in ["бан", "ban"]:
