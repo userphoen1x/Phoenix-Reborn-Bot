@@ -1,3 +1,4 @@
+import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, LinkPreviewOptions
 from database.repositories.user_repo import UserRepository
@@ -12,6 +13,12 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
                 "Участник": "👤", "Гость": "🗣️"}
 
+async def delete_later(message: Message, delay: int = 10800):
+    await asyncio.sleep(delay)
+    try:
+        await message.delete()
+    except:
+        pass
 
 def get_rank_name(val: int):
     ranks = {1: "🥉 Бронза 1", 2: "🥉 Бронза 2", 3: "🥉 Бронза 3", 4: "🥈 Серебро 1", 5: "🥈 Серебро 2", 6: "🥈 Серебро 3",
@@ -60,9 +67,12 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     roles.append(game_role)
 
     sym = "".join([ROLE_SYMBOLS.get(r, "🗣️") for r in roles])
-    player_name, _, _, tg_full_name = db_user
-    name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>" if tg_full_name and tg_full_name.startswith(
-        "@") else f"<b>{player_name}</b>"
+    
+    # Распаковываем данные пользователя (включая название клуба из БД)
+    player_name, club_name, _, tg_full_name = db_user
+    name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>" if tg_full_name and tg_full_name.startswith("@") else f"<b>{player_name}</b>"
+    
+    club_display = club_name if club_name else "Без клуба"
 
     bs_tag = eco_data.get('bs_tag', '')
     if bs_tag:
@@ -83,8 +93,18 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
         gain_str = trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
 
     balance = eco_data.get("balance", 0)
-    level = eco_data.get("level", 1)
 
-    text = f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n┌ 📱 Ник: {sym} {name_link}\n├ 📈 За день: {gain_str}\n├ 🏆 Общие: {trophies}\n├ ⚔️ 3 на 3: {wins3v3}\n├ 🌵 ШД: {sd_wins}\n├ 🎖 Ранкед: {rank_name} ({rank_elo})\n├ 🌟 Уровень: {level}\n└ 💰 Баланс: {balance} ₣"
+    # Новый отформатированный текст профиля
+    text = (
+        f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n"
+        f"┌ 📱 Ник: {sym} {name_link}\n"
+        f"├ 🏰 Клуб: {club_display}\n"
+        f"├ 🏆 Общие: {trophies}\n"
+        f"├ 🎖 Ранкед: {rank_name} ({rank_elo})\n"
+        f"├ ⚔️ 3 на 3: {wins3v3}\n"
+        f"├ 🌵 ШД: {sd_wins}\n"
+        f"├ 📈 За день: {gain_str}\n"
+        f"└ 💰 Баланс: {balance} ₣"
+    )
 
     await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
