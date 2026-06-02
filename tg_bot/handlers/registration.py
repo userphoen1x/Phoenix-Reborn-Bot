@@ -4,7 +4,6 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-import aiosqlite
 from services.registration_service import RegistrationService
 from database.repositories.economy_repo import EconomyRepository
 from core.exceptions import BotBaseException
@@ -33,21 +32,14 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, eco_repo: Eco
                 invite = await bot.create_chat_invite_link(
                     chat_id=settings.TARGET_CHAT_ID,
                     name=f"Invite_{message.from_user.id}",
-                    creates_join_request=True
+                    member_limit=1
                 )
                 
-                async with aiosqlite.connect(settings.DB_PATH) as db:
-                    await db.execute(
-                        "INSERT OR REPLACE INTO links (link, user_id) VALUES (?, ?)",
-                        (invite.invite_link, message.from_user.id)
-                    )
-                    await db.commit()
-                    
                 await message.answer(
                     f"✅ Вы уже зарегистрированы!\n\n"
                     f"Мы заметили, что вас нет в группе.\n"
                     f"🔗 <b>Ваша новая ссылка для входа:</b>\n{invite.invite_link}\n\n"
-                    f"⚠️ <i>Ссылка одноразовая и привязана к вашему аккаунту. При попытке передать её другому лицу сработает блокировка.</i>",
+                    f"⚠️ <i>Ссылка одноразовая. При попытке передать её другому лицу он будет исключен.</i>",
                     parse_mode="HTML"
                 )
                 return
@@ -74,22 +66,15 @@ async def process_tag_input(message: Message, state: FSMContext, bot: Bot, reg_s
         invite = await bot.create_chat_invite_link(
             chat_id=settings.TARGET_CHAT_ID,
             name=f"Invite_{user_id}",
-            creates_join_request=True
+            member_limit=1
         )
-
-        async with aiosqlite.connect(settings.DB_PATH) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO links (link, user_id) VALUES (?, ?)",
-                (invite.invite_link, user_id)
-            )
-            await db.commit()
 
         success_text = (
             f"✅ <b>Регистрация успешна!</b>\n\n"
             f"👤 Имя: <b>{result['name']}</b>\n"
             f"🏷 Тег: <code>{result['tag']}</code>\n{status_text}\n\n"
             f"🔗 <b>Ваша ссылка для входа в клуб:</b>\n{invite.invite_link}\n\n"
-            f"⚠️ <i>Ссылка одноразовая и привязана к вашему аккаунту. При попытке передать её другому лицу сработает блокировка.</i>"
+            f"⚠️ <i>Ссылка одноразовая. При попытке передать её другому лицу он будет исключен.</i>"
         )
         await wait_msg.edit_text(success_text, parse_mode="HTML")
         await state.clear()
