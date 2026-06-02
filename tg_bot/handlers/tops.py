@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.filters.callback_data import CallbackData
@@ -151,6 +152,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
             await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(sent_msg))
         except Exception as e:
+            logging.exception("Ошибка в текстовой команде роста кубков:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(sent_msg))
         return
@@ -208,6 +210,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
                 await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в топе общих кубков:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
@@ -240,6 +243,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                 if err: txt += f"\nОшибки: {err}"
                 await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в топе ранкеда:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid, brawl_client)
@@ -278,6 +282,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в топе богачей:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -306,6 +311,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
             await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка коллбэка общих кубков:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -343,6 +349,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
             if err: txt += f"\nОшибки: {err}"
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в коллбэках побед/ранкеда:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("msg_"):
         await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -360,6 +367,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 txt += f"{place} {sym} {name_link}: {v}\n"
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в топе сообщений:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("cups_gain_"):
         d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}.get(act, 1)
@@ -406,4 +414,5 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 txt += "📭 Пока нет данных для расчета."
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
+            logging.exception("Ошибка в коллбэке роста кубков:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
