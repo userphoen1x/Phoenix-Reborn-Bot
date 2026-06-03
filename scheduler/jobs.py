@@ -47,85 +47,6 @@ async def run_archivist_summary(bot: Bot):
 
 
 async def check_roles(bot: Bot):
-    brawl_client = BrawlAPIClient()
-    members, _ = await brawl_client.get_all_club_members()
-    role_translation = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
-                        "member": "Участник"}
-    api_roles = {m["tag"]: role_translation.get(m.get("role", "member"), "Участник") for m in members}
-
-    async with aiosqlite.connect(settings.DB_PATH) as db:
-        user_repo = UserRepository(db)
-        db_users = await user_repo.get_all_users_for_roles()
-        for user in db_users:
-            u_id = user["user_id"]
-            tag = user["tag"]
-            db_role = user["game_role"]
-            status = user["role_status"]
-            tg_name = user["tg_name"]
-            player_name = user["name"]
-            club_name = user["club_name"]
-
-            display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
-
-            # Игрок вышел из клуба
-            if tag not in api_roles:
-                if db_role != "Гость":
-                    await user_repo.set_user_role(u_id, "Гость", "Одобрен")
-                    # Убрали попытку снять права администратора в Telegram
-            else:
-                api_role = api_roles[tag]
-                if api_role == db_role: continue
-
-                # Игрок получил обычное звание (Участник/Ветеран)
-                if api_role in ["Участник", "Ветеран"]:
-                    await user_repo.set_user_role(u_id, api_role, "Одобрен")
-                    # Убрали попытку снять права администратора в Telegram
-
-                # Игрок получил руководящее звание (Президент/Вице-президент) - Требует аппрува Главаря
-                elif api_role in ["Президент", "Вице-президент"] and status not in ["Ожидает", "Отклонен"]:
-                    await user_repo.set_user_role(u_id, db_role, "Ожидает")
-                    if settings.FOUNDER_ID:
-                        role_eng = "president" if api_role == "Президент" else "vicePresident"
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="Да", callback_data=f"role_approve:{u_id}:{role_eng}")],
-                            [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]])
-                        msg_text = f"👤 {display_tg} (ID: <code>{u_id}</code>)\\n🎮 Игрок: <b>{player_name}</b> (<code>{tag}</code>)\\n🏰 Клуб: <b>{club_name}</b>\\n\\nПолучил звание <b>{api_role}</b> в игре. Подтверждаете выдачу внутренних модераторских прав в боте?"
-                        try:
-                            await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb, parse_mode="HTML")
-                        except:
-                            pass
-
-
-async def backup_database(bot: Bot):
-    if not settings.ADMIN_CHAT_ID or not settings.TOPIC_BACKUP: return
-    if not os.path.exists(settings.DB_PATH):
-        logging.warning("Файл БД не найден для создания бэкапа.")
-        return
-    try:
-        db_file = FSInputFile(settings.DB_PATH, filename=f"PR_Backup_{date.today().isoformat()}.db")
-        await bot.send_document(chat_id=int(settings.ADMIN_CHAT_ID), message_thread_id=int(settings.TOPIC_BACKUP),
-                                document=db_file,
-                                caption=f"📦 <b>Ежедневный бэкап базы данных</b>\n📅 Дата: {date.today().isoformat()}",
-                                parse_mode="HTML")
-    except Exception as e:
-        logging.error(f"Ошибка при отправке бэкапа: {e}")
-
-
-import asyncio
-from aiogram import Bot
-from database.repositories.user_repo import UserRepository
-from external.brawl_api import BrawlAPIClient
-from core.config import settings
-
-import asyncio
-import aiosqlite
-from aiogram import Bot
-from database.repositories.user_repo import UserRepository
-from external.brawl_api import BrawlAPIClient
-from core.config import settings
-
-
-async def check_roles(bot: Bot):
     # Фоновая задача сама создает подключение к БД и API
     async with aiosqlite.connect(settings.DB_PATH) as db:
         user_repo = UserRepository(db)
@@ -147,6 +68,11 @@ async def check_roles(bot: Bot):
             tag = user["tag"]
             db_role = user["game_role"]
             db_status = user["role_status"]
+            tg_name = user["tg_name"]
+            player_name = user["name"]
+            club_name = user["club_name"]
+
+            display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
 
             try:
                 member = await bot.get_chat_member(settings.GROUP_ID, u_id)
@@ -169,7 +95,36 @@ async def check_roles(bot: Bot):
                 if actual_role != db_role:
                     if actual_role in ["Президент", "Вице-президент"]:
                         await user_repo.set_user_role(u_id, actual_role, "Ожидает")
+
+                        # Отправка запроса Лидеру
+                        if settings.FOUNDER_ID:
+                            role_eng = "president" if actual_role == "Президент" else "vicePresident"
+                            kb = InlineKeyboardMarkup(inline_keyboard=[
+                                [InlineKeyboardButton(text="Да", callback_data=f"role_approve:{u_id}:{role_eng}")],
+                                [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]
+                            ])
+                            msg_text = f"👤 {display_tg} (ID: <code>{u_id}</code>)\n🎮 Игрок: <b>{player_name}</b> (<code>{tag}</code>)\n🏰 Клуб: <b>{club_name}</b>\n\nПолучил звание <b>{actual_role}</b> в игре. Подтверждаете выдачу внутренних модераторских прав в боте?"
+                            try:
+                                await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb,
+                                                       parse_mode="HTML")
+                            except:
+                                pass
                     else:
                         await user_repo.set_user_role(u_id, actual_role, "Одобрен")
                 elif actual_role == db_role and db_status == "Отклонен":
                     pass
+
+
+async def backup_database(bot: Bot):
+    if not settings.ADMIN_CHAT_ID or not settings.TOPIC_BACKUP: return
+    if not os.path.exists(settings.DB_PATH):
+        logging.warning("Файл БД не найден для создания бэкапа.")
+        return
+    try:
+        db_file = FSInputFile(settings.DB_PATH, filename=f"PR_Backup_{date.today().isoformat()}.db")
+        await bot.send_document(chat_id=int(settings.ADMIN_CHAT_ID), message_thread_id=int(settings.TOPIC_BACKUP),
+                                document=db_file,
+                                caption=f"📦 <b>Ежедневный бэкап базы данных</b>\n📅 Дата: {date.today().isoformat()}",
+                                parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"Ошибка при отправке бэкапа: {e}")
