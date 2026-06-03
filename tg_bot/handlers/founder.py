@@ -13,7 +13,7 @@ router = Router()
 def is_tech_admin(user_id: int) -> bool:
     return str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
 
-ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
+ROLE_SYMBOLS = {"Основатель": "👑", "Разрабочик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
 
 @router.message(Command("unlink"))
 async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
