@@ -126,6 +126,16 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     a_role = await user_repo.get_user_role(message.from_user.id)
     is_founder = str(message.from_user.id) == settings.FOUNDER_ID
 
+    all_users = await user_repo.get_all_users_for_roles()
+    current_user = next((u for u in all_users if u["user_id"] == message.from_user.id), None)
+    a_status = current_user["role_status"] if current_user else "Отклонен"
+
+    if not is_founder:
+        if a_role not in ["Лидер", "Президент", "Вице-президент"] or a_status != "Одобрен":
+            err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
+            asyncio.create_task(delete_later(err_msg, 60))
+            return
+
     if not is_founder and a_role not in ["Основатель", "Президент", "Вице-президент"]:
         err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
         asyncio.create_task(delete_later(err_msg, 60))

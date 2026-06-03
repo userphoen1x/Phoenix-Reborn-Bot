@@ -1,86 +1,117 @@
 import os
+import asyncio
 from aiogram import Router, F, Bot
-from aiogram.filters import CommandStart
 from aiogram.types import Message
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
-from services.registration_service import RegistrationService
-from database.repositories.economy_repo import EconomyRepository
-from core.exceptions import BotBaseException
-from utils.admin_logger import send_log
+from database.repositories.user_repo import UserRepository
+from external.brawl_api import BrawlAPIClient
 from core.config import settings
 
 router = Router()
 router.message.filter(F.chat.type == "private")
 
-class RegFSM(StatesGroup):
-    waiting_for_tag = State()
 
-@router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext, bot: Bot, eco_repo: EconomyRepository):
-    await state.clear()
-    eco = await eco_repo.get_eco_data(message.from_user.id)
-    
-    if eco and eco.get("bs_tag"):
-        try:
-            member = await bot.get_chat_member(settings.TARGET_CHAT_ID, message.from_user.id)
-            
-            if member.status == "kicked":
-                await message.answer("❌ Вы заблокированы в группе клуба. Доступ запрещен.")
-                return
-            elif member.status == "left":
-                invite = await bot.create_chat_invite_link(
-                    chat_id=settings.TARGET_CHAT_ID,
-                    name=f"Invite_{message.from_user.id}",
-                    member_limit=1
-                )
-                
-                await message.answer(
-                    f"✅ Вы уже зарегистрированы!\n\n"
-                    f"Мы заметили, что вас нет в группе.\n"
-                    f"🔗 <b>Ваша новая ссылка для входа:</b>\n{invite.invite_link}\n\n"
-                    f"⚠️ <i>Ссылка одноразовая. При попытке передать её другому лицу он будет исключен.</i>",
-                    parse_mode="HTML"
-                )
-                return
-            else:
-                await message.answer("✅ Вы уже зарегистрированы и находитесь в группе клуба!")
-                return
-        except Exception:
-            await message.answer("✅ Вы уже зарегистрированы и привязали свой игровой тег!")
-            return
+class RegState(StatesGroup):
+    tag = State()
 
-    await message.answer("👋 Привет! Отправь мне свой игровой тег Brawl Stars (например: <code>#2YYUG28QQ</code>), чтобы получить доступ к функциям.", parse_mode="HTML")
-    await state.set_state(RegFSM.waiting_for_tag)
 
-@router.message(RegFSM.waiting_for_tag)
-async def process_tag_input(message: Message, state: FSMContext, bot: Bot, reg_service: RegistrationService):
-    user_tag = message.text.strip().upper()
-    wait_msg = await message.answer("⏳ Проверяю данные в игре...")
-    
+async def get_user_chat_status(bot: Bot, user_id: int):
     try:
-        result = await reg_service.register_player(message.from_user.id, user_tag)
-        status_text = f"🏰 Клуб: {result['club']}\n🎖 Статус: Участник семейства" if result['is_in_club'] else f"🏰 Клуб: {result['club']}\n🗣️ Статус: Гость (Вне семейства)"
-        
-        user_id = message.from_user.id
-        invite = await bot.create_chat_invite_link(
-            chat_id=settings.TARGET_CHAT_ID,
-            name=f"Invite_{user_id}",
-            member_limit=1
-        )
+        member = await bot.get_chat_member(settings.GROUP_ID, user_id)
+        if member.status in ['kicked', 'left']:
+            return False, member.status == 'kicked'
+        return True, False
+    except Exception:
+        return False, False
 
-        success_text = (
-            f"✅ <b>Регистрация успешна!</b>\n\n"
-            f"👤 Имя: <b>{result['name']}</b>\n"
-            f"🏷 Тег: <code>{result['tag']}</code>\n{status_text}\n\n"
-            f"🔗 <b>Ваша ссылка для входа в клуб:</b>\n{invite.invite_link}\n\n"
-            f"⚠️ <i>Ссылка одноразовая. При попытке передать её другому лицу он будет исключен.</i>"
-        )
-        await wait_msg.edit_text(success_text, parse_mode="HTML")
+
+@router.message(Command("start"))
+async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: UserRepository,
+                    brawl_client: BrawlAPIClient):
+    user_id = message.from_user.id
+    in_chat, is_banned = await get_user_chat_status(bot, user_id)
+
+    if is_banned:
+        return await message.answer("❌ Вам запрещен доступ в группу.")
+
+    is_reg = await user_repo.is_registered(user_id)
+
+    if is_reg:
+        user_data = await user_repo.get_user_data(user_id)
+        bs_tag = user_data[2] if len(user_data) > 2 else ""
+
+        clubs_members, _ = await brawl_client.get_all_club_members("ALL")
+        in_club = any(m.get("tag") == bs_tag for m in clubs_members) if clubs_members else False
+
+        if not in_club and not in_chat:
+            await message.answer("Доступ запрещен: вы не являетесь участником клубов Phoenix Family.")
+        elif not in_club and in_chat:
+            await user_repo.set_user_role(user_id, "Гость", "Одобрен")
+            await message.answer("Вы не в клубах семейства. Вам автоматически выдано звание 'Гость'.")
+        elif in_club and not in_chat:
+            link = await bot.create_chat_invite_link(settings.GROUP_ID, member_limit=1)
+            await message.answer(f"Вы состоите в клубе! Вот ваша ссылка для входа: {link.invite_link}")
+        elif in_club and in_chat:
+            await message.answer("✅ Всё настроено идеально!")
+        return
+
+    if in_chat:
+        await message.answer("Привяжите ваш игровой тег.")
+    else:
+        await message.answer("Для получения доступа в чат привяжите ваш игровой тег.")
+
+    await state.set_state(RegState.tag)
+
+
+@router.message(RegState.tag)
+async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: UserRepository,
+                      brawl_client: BrawlAPIClient):
+    tag = message.text.strip().upper()
+    if not tag.startswith("#"):
+        tag = "#" + tag
+
+    user_id = message.from_user.id
+    in_chat, is_banned = await get_user_chat_status(bot, user_id)
+
+    if is_banned:
         await state.clear()
-        
-        username_str = f"@{message.from_user.username}" if message.from_user.username else "Без юзернейма"
-        log_text = f"👤 <b>НОВАЯ РЕГИСТРАЦИЯ</b>\n\n🔗 Юзер: {username_str} (<code>{user_id}</code>)\n🏷 Тег: <code>{result['tag']}</code>\n🎮 Имя в игре: <b>{result['name']}</b>\n🏰 Клуб: {result['club']}"
-        await send_log(bot, "TOPIC_REG", log_text)
-    except BotBaseException as e:
-        await wait_msg.edit_text(str(e))
+        return await message.answer("❌ Вам запрещен доступ в группу.")
+
+    player_stats = await brawl_client.get_player_stats(tag)
+    if not player_stats:
+        return await message.answer("❌ Тег не найден. Попробуйте снова.")
+
+    clubs_members, _ = await brawl_client.get_all_club_members("ALL")
+    member_data = next((m for m in clubs_members if m.get("tag") == tag), None) if clubs_members else None
+    in_club = member_data is not None
+
+    if not in_club and not in_chat:
+        await state.clear()
+        return await message.answer("Доступ запрещен: вы не являетесь участником клубов Phoenix Family.")
+
+    player_name = player_stats.get("name", "Игрок")
+    await user_repo.register_user(user_id, tag, player_name, message.from_user.username or message.from_user.full_name)
+
+    if not in_club and in_chat:
+        await user_repo.set_user_role(user_id, "Гость", "Одобрен")
+        await message.answer("Тег привязан. Так как вы не в клубе, вам выдано звание 'Гость'.")
+    elif in_club and not in_chat:
+        role_eng = member_data.get("role", "member")
+        role_ru = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
+                   "member": "Участник"}.get(role_eng, "Участник")
+        r_status = "Ожидает" if role_ru in ["Президент", "Вице-президент"] else "Одобрен"
+        await user_repo.set_user_role(user_id, role_ru, r_status)
+
+        link = await bot.create_chat_invite_link(settings.GROUP_ID, member_limit=1)
+        await message.answer(f"Тег привязан! Роль: {role_ru}. Ваша ссылка: {link.invite_link}")
+    elif in_club and in_chat:
+        role_eng = member_data.get("role", "member")
+        role_ru = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
+                   "member": "Участник"}.get(role_eng, "Участник")
+        r_status = "Ожидает" if role_ru in ["Президент", "Вице-президент"] else "Одобрен"
+        await user_repo.set_user_role(user_id, role_ru, r_status)
+        await message.answer(f"Тег привязан! Ваше звание обновлено: {role_ru}.")
+
+    await state.clear()
