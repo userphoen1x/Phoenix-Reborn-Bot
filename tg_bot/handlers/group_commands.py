@@ -11,7 +11,7 @@ from core.config import settings
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
+ROLE_SYMBOLS = {"Основатель": "👑", "Разработчик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
                 "Участник": "👤", "Гость": "🗣️"}
 
 
