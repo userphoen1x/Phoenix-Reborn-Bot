@@ -117,47 +117,59 @@ from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 
+import asyncio
+import aiosqlite
+from aiogram import Bot
+from database.repositories.user_repo import UserRepository
+from external.brawl_api import BrawlAPIClient
+from core.config import settings
 
-async def check_roles(bot: Bot, user_repo: UserRepository, brawl_client: BrawlAPIClient):
-    db_users = await user_repo.get_all_users_for_roles()
-    clubs_members, _ = await brawl_client.get_all_club_members("ALL")
 
-    api_roles = {}
-    if clubs_members:
-        for m in clubs_members:
-            role_eng = m.get("role", "member")
-            role_ru = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
-                       "member": "Участник"}.get(role_eng, "Участник")
-            api_roles[m.get("tag")] = role_ru
+async def check_roles(bot: Bot):
+    # Фоновая задача сама создает подключение к БД и API
+    async with aiosqlite.connect(settings.DB_PATH) as db:
+        user_repo = UserRepository(db)
+        brawl_client = BrawlAPIClient()
 
-    for user in db_users:
-        u_id = user["user_id"]
-        tag = user["tag"]
-        db_role = user["game_role"]
-        db_status = user["role_status"]
+        db_users = await user_repo.get_all_users_for_roles()
+        clubs_members, _ = await brawl_client.get_all_club_members("ALL")
 
-        try:
-            member = await bot.get_chat_member(settings.GROUP_ID, u_id)
-            in_chat = member.status in ['member', 'administrator', 'creator', 'restricted']
-            is_banned = member.status == 'kicked'
-        except Exception:
-            in_chat = False
-            is_banned = False
+        api_roles = {}
+        if clubs_members:
+            for m in clubs_members:
+                role_eng = m.get("role", "member")
+                role_ru = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
+                           "member": "Участник"}.get(role_eng, "Участник")
+                api_roles[m.get("tag")] = role_ru
 
-        if is_banned:
-            continue
+        for user in db_users:
+            u_id = user["user_id"]
+            tag = user["tag"]
+            db_role = user["game_role"]
+            db_status = user["role_status"]
 
-        in_club = tag in api_roles
+            try:
+                member = await bot.get_chat_member(settings.GROUP_ID, u_id)
+                in_chat = member.status in ['member', 'administrator', 'creator', 'restricted']
+                is_banned = member.status == 'kicked'
+            except Exception:
+                in_chat = False
+                is_banned = False
 
-        if not in_club:
-            if in_chat and db_role != "Гость":
-                await user_repo.set_user_role(u_id, "Гость", "Одобрен")
-        else:
-            actual_role = api_roles[tag]
-            if actual_role != db_role:
-                if actual_role in ["Президент", "Вице-президент"]:
-                    await user_repo.set_user_role(u_id, actual_role, "Ожидает")
-                else:
-                    await user_repo.set_user_role(u_id, actual_role, "Одобрен")
-            elif actual_role == db_role and db_status == "Отклонен":
-                pass
+            if is_banned:
+                continue
+
+            in_club = tag in api_roles
+
+            if not in_club:
+                if in_chat and db_role != "Гость":
+                    await user_repo.set_user_role(u_id, "Гость", "Одобрен")
+            else:
+                actual_role = api_roles[tag]
+                if actual_role != db_role:
+                    if actual_role in ["Президент", "Вице-президент"]:
+                        await user_repo.set_user_role(u_id, actual_role, "Ожидает")
+                    else:
+                        await user_repo.set_user_role(u_id, actual_role, "Одобрен")
+                elif actual_role == db_role and db_status == "Отклонен":
+                    pass
