@@ -12,7 +12,7 @@ from core.config import settings
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-ROLE_SYMBOLS = {"Главарь": "👑", "Программист": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
+ROLE_SYMBOLS = {"Лидер": "👑", "Разработчик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
                 "Участник": "👤", "Гость": "🗣️"}
 
 async def delete_later(message: Message, delay: int = 10800):
@@ -33,7 +33,6 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     for c in cmds:
-        # Жесткая граница: команда должна быть первым словом в сообщении
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
         if re.match(pattern, t):
             return True
@@ -46,7 +45,6 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     parts = message.text.split()
     target_id = message.from_user.id
 
-    # 1. Высший приоритет тегу
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
     
     if target_username:
@@ -64,7 +62,6 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе данных.")
             asyncio.create_task(delete_later(sent_msg, 60))
             return
-    # 2. Если тега нет, проверяем реплай
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
 
@@ -76,11 +73,10 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
         return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
 
     roles = []
-    if str(target_id) == settings.FOUNDER_ID: roles.append("Главарь")
-    if str(target_id) in settings.DEVELOPER_IDS: roles.append("Программист")
+    if str(target_id) == settings.FOUNDER_ID: roles.append("Лидер")
+    if str(target_id) in settings.DEVELOPER_IDS: roles.append("Разработчик")
     roles.append(game_role)
 
-    # Формирование строки ролей
     role_label = "Роли" if len(roles) > 1 else "Роль"
     role_str = ", ".join([f"{ROLE_SYMBOLS.get(r, '🗣️')} {r}" for r in roles])
     
@@ -97,7 +93,6 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
             baseline = baseline_map.get(bs_tag, trophies)
             gain = trophies - baseline
             
-            # Убираем (0), оставляем скобки только если есть изменения
             gain_display = f" (+{gain})" if gain > 0 else (f" ({gain})" if gain < 0 else "")
             trophies_str = f"{trophies}{gain_display}"
             
