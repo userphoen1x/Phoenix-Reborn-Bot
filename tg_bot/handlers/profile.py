@@ -80,7 +80,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     if str(target_id) in settings.DEVELOPER_IDS: roles.append("Программист")
     roles.append(game_role)
 
-    sym = "".join([ROLE_SYMBOLS.get(r, "🗣️") for r in roles])
+    # Формирование строки ролей
+    role_label = "Роли" if len(roles) > 1 else "Роль"
+    role_str = ", ".join([f"{ROLE_SYMBOLS.get(r, '🗣️')} {r}" for r in roles])
     
     player_name, club_name, _, tg_full_name = db_user
     name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>" if tg_full_name and tg_full_name.startswith("@") else f"<b>{player_name}</b>"
@@ -94,27 +96,30 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
             trophies = stats['trophies']
             baseline = baseline_map.get(bs_tag, trophies)
             gain = trophies - baseline
-            gain_str = f"+{gain}" if gain > 0 else str(gain)
+            # Добавляем кубки в скобках
+            gain_display = f" (+{gain})" if gain > 0 else (f" ({gain})" if gain < 0 else " (0)")
+            trophies_str = f"{trophies}{gain_display}"
+            
             wins3v3 = stats['wins_3v3']
             sd_wins = stats['solo_wins'] + stats['duo_wins']
             rank_name = get_rank_name(stats.get('ranked_curr_rank', 0))
             rank_elo = stats.get('ranked_curr_elo', 0)
         else:
-            gain_str = trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
+            trophies_str = wins3v3 = sd_wins = rank_name = rank_elo = "???"
     else:
-        gain_str = trophies = wins3v3 = sd_wins = rank_name = rank_elo = "???"
+        trophies_str = wins3v3 = sd_wins = rank_name = rank_elo = "???"
 
     balance = eco_data.get("balance", 0)
 
     text = (
         f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n"
-        f"┌ 📱 Ник: {sym} {name_link}\n"
+        f"┌ 📱 Ник: {name_link}\n"
+        f"├ 🪪 {role_label}: {role_str}\n"
         f"├ 🏰 Клуб: {club_display}\n"
-        f"├ 🏆 Общие: {trophies}\n"
+        f"├ 🏆 Общие: {trophies_str}\n"
         f"├ 🎖 Ранкед: {rank_name} ({rank_elo})\n"
         f"├ ⚔️ 3 на 3: {wins3v3}\n"
         f"├ 🌵 ШД: {sd_wins}\n"
-        f"├ 📈 За день: {gain_str}\n"
         f"└ 💰 Баланс: {balance} ₣"
     )
 
@@ -129,7 +134,6 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
     target_id = message.from_user.id
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
     
-    # 1. Поиск цели по тегу
     if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         found = False
@@ -146,7 +150,6 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
             asyncio.create_task(delete_later(sent_msg, 60))
             return
             
-    # 2. Если нет тега, ищем по реплаю
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
 
@@ -172,19 +175,16 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
     prefix = f"👤 <b>{player_name}</b>"
 
     if cmd == "клуб":
-        # Берем название клуба и роль из нашей локальной базы данных
         c_name = db_club_name if db_club_name else "Без клуба"
         text = f"{prefix}\n🏰 Клуб: <b>{c_name}</b>\n🔰 Роль: {game_role}"
         
     elif cmd in ["ранкед", "лига"]:
         rank_val = stats.get('ranked_curr_rank', 0)
         elo = stats.get('ranked_curr_elo', 0)
-        # Убрали максимальный ранг
         text = f"{prefix}\n🎖 Ранкед: <b>{get_rank_name(rank_val)}</b> ({elo})"
         
     elif cmd == "кубки":
         trophies = stats.get('trophies', 0)
-        # Убрали максимальные кубки
         text = f"{prefix}\n🏆 Кубки: <b>{trophies}</b>"
 
     await wait_msg.edit_text(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
