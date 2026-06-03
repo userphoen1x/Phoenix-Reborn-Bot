@@ -19,7 +19,7 @@ class RegState(StatesGroup):
 
 async def get_user_chat_status(bot: Bot, user_id: int):
     try:
-        member = await bot.get_chat_member(int(settings.GROUP_ID), user_id)
+        member = await bot.get_chat_member(int(settings.TARGET_CHAT_ID), user_id)
         status = str(member.status).lower()
         if 'kicked' in status or 'banned' in status or 'left' in status:
             is_banned = 'kicked' in status or 'banned' in status
@@ -60,7 +60,7 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Us
             await wait_msg.edit_text("Вы не в клубах семейства. Вам автоматически выдано звание 'Гость'.")
         elif in_club and not in_chat:
             try:
-                link = await bot.create_chat_invite_link(int(settings.GROUP_ID), member_limit=1)
+                link = await bot.create_chat_invite_link(int(settings.TARGET_CHAT_ID), member_limit=1)
                 await wait_msg.edit_text(f"✅ Вы состоите в клубе!\nВот ваша индивидуальная ссылка для входа:\n{link.invite_link}")
             except Exception as e:
                 await wait_msg.edit_text(f"❌ Ошибка создания ссылки. Скорее всего, боту не хватает прав администратора 'Пригласительные ссылки' в вашей группе.\nДетали: {e}")
@@ -117,7 +117,7 @@ async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: 
         await user_repo.set_user_role(user_id, role_ru, r_status)
         
         try:
-            link = await bot.create_chat_invite_link(int(settings.GROUP_ID), member_limit=1)
+            link = await bot.create_chat_invite_link(int(settings.TARGET_CHAT_ID), member_limit=1)
             await wait_msg.edit_text(f"✅ Тег успешно привязан!\nВ игре у вас статус: <b>{role_ru}</b>.\n\nВот ваша ссылка для входа в чат:\n{link.invite_link}", parse_mode="HTML")
         except Exception as e:
             await wait_msg.edit_text(f"✅ Тег привязан!\n❌ Ошибка создания ссылки (нет прав). Попросите Лидера добавить вас вручную.\nДетали: {e}")
