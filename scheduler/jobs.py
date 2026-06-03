@@ -75,7 +75,7 @@ async def check_roles(bot: Bot):
             display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
 
             try:
-                member = await bot.get_chat_member(settings.GROUP_ID, u_id)
+                member = await bot.get_chat_member(settings.TARGET_CHAT_ID, u_id)
                 in_chat = member.status in ['member', 'administrator', 'creator', 'restricted']
                 is_banned = member.status == 'kicked'
             except Exception:
