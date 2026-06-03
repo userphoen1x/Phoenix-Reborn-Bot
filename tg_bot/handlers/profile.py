@@ -122,7 +122,7 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["клуб", "ранкед", "лига", "кубки"])))
-async def cmd_mini_stats(message: Message, user_repo: UserRepository, brawl_client: BrawlAPIClient):
+async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):
     parts = message.text.split()
     cmd = parts[0].lower().strip(string.punctuation)
     
@@ -151,17 +151,23 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, brawl_clie
         target_id = message.reply_to_message.from_user.id
 
     db_user = await user_repo.get_user_data(target_id)
-    if not db_user:
+    eco_data = await eco_repo.get_eco_data(target_id)
+    
+    if not db_user or not eco_data:
         return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
 
-    player_name, db_club_name, bs_tag, tg_full_name = db_user
+    player_name, db_club_name, _, tg_full_name = db_user
+    bs_tag = eco_data.get('bs_tag', '')
     
     if not bs_tag:
         return await message.answer("❌ Игрок не привязал тег.")
 
+    # Добавил оповещение, чтобы было понятно, что бот работает
+    wait_msg = await message.answer("⏳ Загружаю данные...")
+
     stats = await brawl_client.get_player_stats(bs_tag)
     if not stats:
-        return await message.answer("❌ Ошибка получения данных из API Brawl Stars.")
+        return await wait_msg.edit_text("❌ Ошибка получения данных из API Brawl Stars.")
 
     prefix = f"👤 <b>{player_name}</b>"
 
@@ -184,4 +190,4 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, brawl_clie
         max_trophies = stats.get('highest_trophies', trophies)
         text = f"{prefix}\n🏆 Кубки: <b>{trophies}</b> (Макс: {max_trophies})"
 
-    await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
+    await wait_msg.edit_text(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
