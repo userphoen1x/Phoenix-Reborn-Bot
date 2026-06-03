@@ -152,6 +152,7 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
 
     db_user = await user_repo.get_user_data(target_id)
     eco_data = await eco_repo.get_eco_data(target_id)
+    game_role = await user_repo.get_user_role(target_id)
     
     if not db_user or not eco_data:
         return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
@@ -162,7 +163,6 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
     if not bs_tag:
         return await message.answer("❌ Игрок не привязал тег.")
 
-    # Добавил оповещение, чтобы было понятно, что бот работает
     wait_msg = await message.answer("⏳ Загружаю данные...")
 
     stats = await brawl_client.get_player_stats(bs_tag)
@@ -172,22 +172,19 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
     prefix = f"👤 <b>{player_name}</b>"
 
     if cmd == "клуб":
-        c_name = stats.get('club', {}).get('name', 'Без клуба')
-        c_role_eng = stats.get('club', {}).get('role', 'Отсутствует')
-        role_trans = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран", "member": "Участник"}
-        c_role_ru = role_trans.get(c_role_eng, c_role_eng) if c_role_eng != 'Отсутствует' else 'Отсутствует'
-        
-        text = f"{prefix}\n🏰 Клуб: <b>{c_name}</b>\n🔰 Роль: {c_role_ru}"
+        # Берем название клуба и роль из нашей локальной базы данных
+        c_name = db_club_name if db_club_name else "Без клуба"
+        text = f"{prefix}\n🏰 Клуб: <b>{c_name}</b>\n🔰 Роль: {game_role}"
         
     elif cmd in ["ранкед", "лига"]:
         rank_val = stats.get('ranked_curr_rank', 0)
         elo = stats.get('ranked_curr_elo', 0)
-        max_rank = stats.get('highest_ranked_rank', 0)
-        text = f"{prefix}\n🎖 Ранкед: <b>{get_rank_name(rank_val)}</b> ({elo})\n🌟 Максимум: {get_rank_name(max_rank)}"
+        # Убрали максимальный ранг
+        text = f"{prefix}\n🎖 Ранкед: <b>{get_rank_name(rank_val)}</b> ({elo})"
         
     elif cmd == "кубки":
         trophies = stats.get('trophies', 0)
-        max_trophies = stats.get('highest_trophies', trophies)
-        text = f"{prefix}\n🏆 Кубки: <b>{trophies}</b> (Макс: {max_trophies})"
+        # Убрали максимальные кубки
+        text = f"{prefix}\n🏆 Кубки: <b>{trophies}</b>"
 
     await wait_msg.edit_text(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
