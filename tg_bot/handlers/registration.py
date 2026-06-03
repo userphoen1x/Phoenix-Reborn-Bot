@@ -1,5 +1,6 @@
 import os
 import asyncio
+import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.filters import Command
@@ -18,15 +19,15 @@ class RegState(StatesGroup):
 
 async def get_user_chat_status(bot: Bot, user_id: int):
     try:
-        member = await bot.get_chat_member(settings.GROUP_ID, user_id)
-        # В Aiogram 3 статус - это строка
+        member = await bot.get_chat_member(int(settings.GROUP_ID), user_id)
         status = str(member.status).lower()
         if 'kicked' in status or 'banned' in status or 'left' in status:
             is_banned = 'kicked' in status or 'banned' in status
             return False, is_banned
         return True, False
-    except Exception:
-        # Если бота нет в чате или юзера никогда там не было
+    except Exception as e:
+        logging.error(f"Ошибка проверки статуса в чате: {e}")
+        # Если юзера никогда не было в чате
         return False, False
 
 @router.message(Command("start"))
@@ -58,8 +59,11 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Us
             await user_repo.set_user_role(user_id, "Гость", "Одобрен")
             await wait_msg.edit_text("Вы не в клубах семейства. Вам автоматически выдано звание 'Гость'.")
         elif in_club and not in_chat:
-            link = await bot.create_chat_invite_link(settings.GROUP_ID, member_limit=1)
-            await wait_msg.edit_text(f"Вы состоите в клубе! Вот ваша индивидуальная ссылка для входа:\n{link.invite_link}")
+            try:
+                link = await bot.create_chat_invite_link(int(settings.GROUP_ID), member_limit=1)
+                await wait_msg.edit_text(f"✅ Вы состоите в клубе!\nВот ваша индивидуальная ссылка для входа:\n{link.invite_link}")
+            except Exception as e:
+                await wait_msg.edit_text(f"❌ Ошибка создания ссылки. Скорее всего, боту не хватает прав администратора 'Пригласительные ссылки' в вашей группе.\nДетали: {e}")
         elif in_club and in_chat:
             await wait_msg.edit_text("✅ Всё настроено идеально! Вы есть в клубе и в чате.")
         return
@@ -112,8 +116,11 @@ async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: 
         r_status = "Ожидает" if role_ru in ["Президент", "Вице-президент"] else "Одобрен"
         await user_repo.set_user_role(user_id, role_ru, r_status)
         
-        link = await bot.create_chat_invite_link(settings.GROUP_ID, member_limit=1)
-        await wait_msg.edit_text(f"✅ Тег успешно привязан!\nВ игре у вас статус: <b>{role_ru}</b>.\n\nВот ваша ссылка для входа в чат:\n{link.invite_link}", parse_mode="HTML")
+        try:
+            link = await bot.create_chat_invite_link(int(settings.GROUP_ID), member_limit=1)
+            await wait_msg.edit_text(f"✅ Тег успешно привязан!\nВ игре у вас статус: <b>{role_ru}</b>.\n\nВот ваша ссылка для входа в чат:\n{link.invite_link}", parse_mode="HTML")
+        except Exception as e:
+            await wait_msg.edit_text(f"✅ Тег привязан!\n❌ Ошибка создания ссылки (нет прав). Попросите Лидера добавить вас вручную.\nДетали: {e}")
     elif in_club and in_chat:
         role_eng = member_data.get("role", "member")
         role_ru = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран", "member": "Участник"}.get(role_eng, "Участник")
