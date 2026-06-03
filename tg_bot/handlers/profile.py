@@ -96,8 +96,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
             trophies = stats['trophies']
             baseline = baseline_map.get(bs_tag, trophies)
             gain = trophies - baseline
-            # Добавляем кубки в скобках
-            gain_display = f" (+{gain})" if gain > 0 else (f" ({gain})" if gain < 0 else " (0)")
+            
+            # Убираем (0), оставляем скобки только если есть изменения
+            gain_display = f" (+{gain})" if gain > 0 else (f" ({gain})" if gain < 0 else "")
             trophies_str = f"{trophies}{gain_display}"
             
             wins3v3 = stats['wins_3v3']
