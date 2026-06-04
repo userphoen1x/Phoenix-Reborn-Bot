@@ -53,3 +53,19 @@ class UserRepository:
         async with self.db.execute(query) as cursor:
             rows = await cursor.fetchall()
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
+
+    async def register_user(self, user_id: int, tag: str, player_name: str, tg_name: str):
+        cursor = await self.db.execute("SELECT user_id FROM tg_profiles WHERE user_id = ?", (user_id,))
+        exists = await cursor.fetchone()
+
+        if exists:
+            await self.db.execute(
+                "UPDATE tg_profiles SET full_name = ? WHERE user_id = ?",
+                (tg_name, user_id)
+            )
+        else:
+            await self.db.execute(
+                "INSERT INTO tg_profiles (user_id, full_name, game_role, role_status) VALUES (?, ?, 'Гость', 'Одобрен')",
+                (user_id, tg_name)
+            )
+        await self.db.commit()
