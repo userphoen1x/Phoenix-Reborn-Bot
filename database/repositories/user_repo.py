@@ -55,10 +55,9 @@ class UserRepository:
             return {row[0]: {"id": row[1], "name": row[2]} for row in rows}
 
     async def register_user(self, user_id: int, tag: str, player_name: str, tg_name: str):
+        # 1. Сохраняем Telegram-профиль и выдаем начальные права
         cursor = await self.db.execute("SELECT user_id FROM tg_profiles WHERE user_id = ?", (user_id,))
-        exists = await cursor.fetchone()
-
-        if exists:
+        if await cursor.fetchone():
             await self.db.execute(
                 "UPDATE tg_profiles SET full_name = ? WHERE user_id = ?",
                 (tg_name, user_id)
@@ -68,4 +67,18 @@ class UserRepository:
                 "INSERT INTO tg_profiles (user_id, full_name, game_role, role_status) VALUES (?, ?, 'Гость', 'Одобрен')",
                 (user_id, tg_name)
             )
+
+        # 2. Сохраняем ИГРОВОЙ ТЕГ в основную таблицу (именно этого не хватало!)
+        cursor2 = await self.db.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        if await cursor2.fetchone():
+            await self.db.execute(
+                "UPDATE users SET bs_tag = ?, player_name = ? WHERE user_id = ?",
+                (tag, player_name, user_id)
+            )
+        else:
+            await self.db.execute(
+                "INSERT INTO users (user_id, bs_tag, player_name) VALUES (?, ?, ?)",
+                (user_id, tag, player_name)
+            )
+
         await self.db.commit()
