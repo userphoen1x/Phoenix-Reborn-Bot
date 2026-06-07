@@ -1,9 +1,11 @@
 from database.repositories.economy_repo import EconomyRepository
+from database.repositories.user_repo import UserRepository
 from core.exceptions import NotEnoughMoneyError, UserNotRegisteredError
 
 class CasinoService:
-    def __init__(self, eco_repo: EconomyRepository):
+    def __init__(self, eco_repo: EconomyRepository, user_repo: UserRepository):
         self.eco_repo = eco_repo
+        self.user_repo = user_repo
 
     async def get_balance(self, user_id: int) -> int:
         eco = await self.eco_repo.get_eco_data(user_id)

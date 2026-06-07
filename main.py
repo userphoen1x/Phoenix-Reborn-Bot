@@ -35,7 +35,7 @@ async def main():
     dp.message.middleware(AntiSpamMiddleware())
 
     @dp.errors()
-    async def global_error_handler(event, data):
+    async def global_error_handler(event, **kwargs):
         logging.error(f"Error: {event.exception}")
         await send_log(bot, "TOPIC_SESSION", f"🔥 <b>Критический сбой бота:</b>\n<code>{event.exception}</code>")
         return True
