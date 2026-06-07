@@ -7,8 +7,9 @@ from database.repositories.economy_repo import EconomyRepository
 from database.repositories.chat_repo import ChatRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
-from core.constants import ROLE_SYMBOLS, RANK_NAMES
+from core.constants import ROLE_SYMBOLS, RANK_NAMES, DELAYS
 from core.garbage_collector import schedule_delete
+from core.lexicon import LEXICON
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -43,8 +44,8 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
                     found = True
                     break
         if not found:
-            sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе данных.")
-            schedule_delete(sent_msg, 60)
+            sent_msg = await message.answer(LEXICON["profile_not_found_db"].format(target=target_username))
+            schedule_delete(sent_msg, DELAYS["default"])
             return
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
@@ -54,7 +55,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
     game_role = await user_repo.get_user_role(target_id)
 
     if not db_user or not eco_data:
-        return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
+        sent = await message.answer(LEXICON["profile_not_linked"])
+        schedule_delete(sent, DELAYS["short"])
+        return
 
     roles = []
     if str(target_id) == settings.FOUNDER_ID: roles.append("Лидер")
@@ -90,16 +93,10 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
 
     balance = eco_data.get("balance", 0)
 
-    text = (
-        f"👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n"
-        f"┌ 📱 Ник: {name_link}\n"
-        f"├ 🪪 {role_label}: {role_str}\n"
-        f"├ 🏰 Клуб: {club_display}\n"
-        f"├ 🏆 Общие: {trophies_str}\n"
-        f"├ 🎖 Ранкед: {rank_name} ({rank_elo})\n"
-        f"├ ⚔️ 3 на 3: {wins3v3}\n"
-        f"├ 🌵 ШД: {sd_wins}\n"
-        f"└ 💰 Баланс: {balance} ₣"
+    text = LEXICON["profile_text"].format(
+        name_link=name_link, role_label=role_label, role_str=role_str,
+        club_display=club_display, trophies_str=trophies_str, rank_name=rank_name,
+        rank_elo=rank_elo, wins3v3=wins3v3, sd_wins=sd_wins, balance=balance
     )
 
     await message.answer(text, link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -126,8 +123,8 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
                     found = True
                     break
         if not found:
-            sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
-            schedule_delete(sent_msg, 60)
+            sent_msg = await message.answer(LEXICON["profile_not_found_db"].format(target=target_username))
+            schedule_delete(sent_msg, DELAYS["default"])
             return
 
     elif message.reply_to_message:
@@ -138,19 +135,23 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
     game_role = await user_repo.get_user_role(target_id)
 
     if not db_user or not eco_data:
-        return await message.answer("❌ Профиль не найден. Игрок не привязал тег.")
+        sent = await message.answer(LEXICON["profile_not_linked"])
+        schedule_delete(sent, DELAYS["short"])
+        return
 
     player_name, db_club_name, _, tg_full_name = db_user
     bs_tag = eco_data.get('bs_tag', '')
 
     if not bs_tag:
-        return await message.answer("❌ Игрок не привязал тег.")
+        sent = await message.answer(LEXICON["profile_not_linked"])
+        schedule_delete(sent, DELAYS["short"])
+        return
 
-    wait_msg = await message.answer("⏳ Загружаю данные...")
+    wait_msg = await message.answer(LEXICON["profile_loading"])
 
     stats = await brawl_client.get_player_stats(bs_tag)
     if not stats:
-        return await wait_msg.edit_text("❌ Ошибка получения данных из API Brawl Stars.")
+        return await wait_msg.edit_text(LEXICON["profile_api_error"])
 
     prefix = f"👤 <b>{player_name}</b>"
 
