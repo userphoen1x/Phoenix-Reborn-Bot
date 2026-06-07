@@ -169,15 +169,15 @@ async def process_transfer_target(message: Message, state: FSMContext, user_repo
                 target_id = u["user_id"]
                 target_name = target_username
                 break
-    
+
     if not target_id:
         sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден. Попробуйте еще раз или напишите «отмена».")
         asyncio.create_task(delete_later(sent_msg, 15))
         return
-        
+
     data = await state.get_data()
     amount = data.get("amount")
-    
+
     if amount:
         await execute_transfer(message, message.from_user.id, target_id, target_name, amount, eco_service, state)
     else:
@@ -195,17 +195,17 @@ async def process_transfer_amount(message: Message, state: FSMContext, eco_servi
         sent_msg = await message.answer("❌ Укажите сумму целым числом. Попробуйте еще раз или напишите «отмена».")
         asyncio.create_task(delete_later(sent_msg, 15))
         return
-        
+
     amount = int(message.text)
     if amount <= 0:
         sent_msg = await message.answer("❌ Сумма должна быть больше нуля.")
         asyncio.create_task(delete_later(sent_msg, 15))
         return
-        
+
     data = await state.get_data()
     target_id = data.get("target_id")
     target_name = data.get("target_name")
-    
+
     if target_id and target_name:
         await execute_transfer(message, message.from_user.id, target_id, target_name, amount, eco_service, state)
     else:
