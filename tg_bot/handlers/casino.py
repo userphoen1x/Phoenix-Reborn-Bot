@@ -8,7 +8,7 @@ from core.exceptions import UserNotRegisteredError, NotEnoughMoneyError
 from core.constants import SAPER_DIFFS
 from tg_bot.keyboards.inline import CasinoCb, BjCb, SaperSetupCb, SaperCb, kb_casino_main, kb_casino_bet, \
     kb_saper_setup_bet, kb_saper_setup_diff, kb_saper_game
-from utils.garbage_collector import schedule_delete
+from core.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}),
@@ -133,11 +133,11 @@ async def cmd_direct_games(message: Message, casino_service: CasinoService):
         msg_result, win_amount = await casino_service.play_emoji_game(user_id=user_id, game=game, bet=bet,
                                                                       dice_value=dice_msg.dice.value, guess=guess)
         res_text = f"{emoji_map[game]} <b>РЕЗУЛЬТАТ: {dice_msg.dice.value}</b>\n\n{msg_result}\n💸 Выигрыш: <b>{win_amount} ₣</b>"
+        retry_val = str(bet) if game != "dice" else f"{bet}_{guess}"
         kb_retry = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Повторить партию",
                                                                                callback_data=CasinoCb(act="play",
                                                                                                       game=game,
-                                                                                                      val=str(
-                                                                                                          bet)).pack())]])
+                                                                                                      val=retry_val).pack())]])
         res_msg = await message.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [dice_msg.message_id, res_msg.message_id]
         schedule_delete(dice_msg)
