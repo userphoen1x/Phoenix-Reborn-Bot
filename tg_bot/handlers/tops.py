@@ -8,6 +8,7 @@ from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS, RANK_NAMES
 from tg_bot.keyboards.inline import TopCb, kb_choose_club, kb_main_top, kb_timeframe, kb_wins, kb_wins_sd
+from utils.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -16,11 +17,6 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     return any(t == c or t.startswith(c + " ") for c in cmds)
-
-async def delete_later(message: Message, delay: int = 10800):
-    await asyncio.sleep(delay)
-    try: await message.delete()
-    except: pass
 
 def make_link(display_name: str, tg_name: str, tg_id: int) -> str:
     if tg_name and tg_name.startswith("@"): return f"<a href='https://t.me/{tg_name[1:]}'>{display_name}</a>"

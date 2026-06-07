@@ -6,6 +6,7 @@ from services.economy_service import EconomyService
 from tg_bot.filters.role_filters import IsModerator
 from database.repositories.user_repo import UserRepository
 from utils.resolvers import resolve_target
+from utils.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -18,11 +19,6 @@ def is_cmd(text: str, cmds: list) -> bool:
         if re.match(pattern, t):
             return True
     return False
-
-async def delete_later(message: Message, delay: int = 10800):
-    await asyncio.sleep(delay)
-    try: await message.delete()
-    except: pass
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["баланс", "б", "bal"])))
 async def cmd_balance(message: Message, eco_service: EconomyService, user_repo: UserRepository):

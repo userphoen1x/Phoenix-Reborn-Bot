@@ -2,17 +2,9 @@ import asyncio
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from database.repositories.user_repo import UserRepository
+from utils.garbage_collector import schedule_delete
 
 router = Router()
-
-
-async def delete_later(message: Message, delay: int = 15):
-    await asyncio.sleep(delay)
-    try:
-        await message.delete()
-    except:
-        pass
-
 
 @router.message(F.new_chat_members)
 async def on_user_join_message(message: Message, bot: Bot, user_repo: UserRepository):

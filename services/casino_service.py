@@ -1,11 +1,14 @@
 from database.repositories.economy_repo import EconomyRepository
 from database.repositories.user_repo import UserRepository
+from database.repositories.game_repo import GameRepository
 from core.exceptions import NotEnoughMoneyError, UserNotRegisteredError
+from typing import Optional
 
 class CasinoService:
-    def __init__(self, eco_repo: EconomyRepository, user_repo: UserRepository):
+    def __init__(self, eco_repo: EconomyRepository, user_repo: UserRepository, game_repo: GameRepository):
         self.eco_repo = eco_repo
         self.user_repo = user_repo
+        self.game_repo = game_repo
 
     async def get_balance(self, user_id: int) -> int:
         eco = await self.eco_repo.get_eco_data(user_id)
@@ -40,3 +43,12 @@ class CasinoService:
         win_amount = int(bet * mult)
         await self.credit_win(user_id, win_amount)
         return msg_result, win_amount
+
+    async def save_active_game(self, user_id: int, game_type: str, state: dict):
+        await self.game_repo.save_game(user_id, game_type, state)
+
+    async def get_active_game(self, user_id: int) -> Optional[dict]:
+        return await self.game_repo.get_game(user_id)
+
+    async def delete_active_game(self, user_id: int):
+        await self.game_repo.delete_game(user_id)

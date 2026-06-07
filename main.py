@@ -8,19 +8,16 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 
 from core.config import settings
+from core.globals import global_scheduler
 from database.connection import init_db
 from scheduler.setup import start_scheduler
 from tg_bot.middlewares.db_middleware import DBMiddleware
 from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
-from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
+from tg_bot.handlers import setup_routers
 
 async def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(levelname)s - %(message)s",
-        force=True
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s", force=True)
 
     if not settings.BOT_TOKEN:
         logging.error("BOT_TOKEN не найден!")
@@ -40,17 +37,10 @@ async def main():
         await send_log(bot, "TOPIC_SESSION", f"🔥 <b>Критический сбой бота:</b>\n<code>{event.exception}</code>")
         return True
 
+    global_scheduler.start()
     start_scheduler(bot)
 
-    dp.include_router(founder.router)
-    dp.include_router(profile.router)
-    dp.include_router(economy.router)
-    dp.include_router(casino.router)
-    dp.include_router(registration.router)
-    dp.include_router(group_events.router)
-    dp.include_router(group_commands.router)
-    dp.include_router(tops.router)
-    dp.include_router(ai_chat.router)
+    setup_routers(dp)
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -59,10 +49,8 @@ async def main():
                     ip = await resp.text()
                     logging.info(f"🌐 Текущий IP-адрес сервера: {ip}")
                     print(f"🌐 Текущий IP-адрес сервера: {ip}")
-                else:
-                    logging.warning(f"Не удалось получить IP, статус: {resp.status}")
-    except Exception as e:
-        logging.warning(f"Ошибка при получении IP: {e}")
+    except Exception:
+        pass
 
     logging.info("🚀 БОТ УСПЕШНО ЗАПУЩЕН")
     print("🚀 БОТ УСПЕШНО ЗАПУЩЕН")

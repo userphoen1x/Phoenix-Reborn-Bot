@@ -9,18 +9,10 @@ from database.repositories.chat_repo import ChatRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS, RANK_NAMES
+from utils.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-
-
-async def delete_later(message: Message, delay: int = 10800):
-    await asyncio.sleep(delay)
-    try:
-        await message.delete()
-    except:
-        pass
-
 
 def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
