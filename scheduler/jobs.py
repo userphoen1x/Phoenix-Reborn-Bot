@@ -47,13 +47,12 @@ async def run_archivist_summary(bot: Bot):
 
 
 async def check_roles(bot: Bot):
-    # Фоновая задача сама создает подключение к БД и API
     async with aiosqlite.connect(settings.DB_PATH) as db:
         user_repo = UserRepository(db)
         brawl_client = BrawlAPIClient()
 
         db_users = await user_repo.get_all_users_for_roles()
-        clubs_members, _ = await brawl_client.get_all_club_members("ALL")
+        clubs_members, _ = await brawl_client.get_all_club_members()
 
         api_roles = {}
         if clubs_members:
@@ -75,7 +74,7 @@ async def check_roles(bot: Bot):
             display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
 
             try:
-                member = await bot.get_chat_member(settings.TARGET_CHAT_ID, u_id)
+                member = await bot.get_chat_member(int(settings.TARGET_CHAT_ID), u_id)
                 in_chat = member.status in ['member', 'administrator', 'creator', 'restricted']
                 is_banned = member.status == 'kicked'
             except Exception:
@@ -96,7 +95,6 @@ async def check_roles(bot: Bot):
                     if actual_role in ["Президент", "Вице-президент"]:
                         await user_repo.set_user_role(u_id, actual_role, "Ожидает")
 
-                        # Отправка запроса Лидеру
                         if settings.FOUNDER_ID:
                             role_eng = "president" if actual_role == "Президент" else "vicePresident"
                             kb = InlineKeyboardMarkup(inline_keyboard=[

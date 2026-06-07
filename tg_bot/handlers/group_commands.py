@@ -7,12 +7,11 @@ from aiogram.types import Message, ChatPermissions, LinkPreviewOptions
 from database.repositories.user_repo import UserRepository
 from utils.admin_logger import send_log
 from core.config import settings
+from core.constants import ROLE_SYMBOLS, TIME_UNITS_MAP, IMPLICIT_TIME_MAP
+from tg_bot.filters.role_filters import IsModerator, IsFounder
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-
-ROLE_SYMBOLS = {"Основатель": "👑", "Разработчик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖",
-                "Участник": "👤", "Гость": "🗣️"}
 
 
 def get_combined_symbols(user_id: int, game_role: str) -> str:
@@ -27,7 +26,6 @@ def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
     t = text.lower().strip()
     for c in cmds:
-        # Проверяем, что команда - это самостоятельное слово
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
         if re.match(pattern, t):
             return True
@@ -42,16 +40,11 @@ async def delete_later(message: Message, delay: int = 10800):
         pass
 
 
-@router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])))
+@router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])), IsFounder())
 async def cmd_demote(message: Message, user_repo: UserRepository):
-    a_role = await user_repo.get_user_role(message.from_user.id)
-    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
-    if not is_founder and a_role != "Президент": return
-
     parts = message.text.split()
     target_id, target_name = None, None
-    
-    # 1. Приоритет тегу (ищем @username в тексте команды)
+
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
 
     if target_username:
@@ -64,7 +57,6 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
                     target_id = u["user_id"]
                     target_name = target_username
                     break
-    # 2. Если тега нет, проверяем ответ на сообщение (реплай)
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -73,23 +65,18 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
         sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent, 60))
         return
-        
+
     await user_repo.set_user_role(target_id, "Гость", "Отклонен")
     sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
                                 parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
 
-@router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])))
+@router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])), IsFounder())
 async def cmd_restore_rank(message: Message, user_repo: UserRepository):
-    a_role = await user_repo.get_user_role(message.from_user.id)
-    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
-    if not is_founder and a_role != "Президент": return
-
     parts = message.text.split()
     target_id, target_name = None, None
-    
-    # 1. Приоритет тегу (ищем @username в тексте команды)
+
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
 
     if target_username:
@@ -102,7 +89,6 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
                     target_id = u["user_id"]
                     target_name = target_username
                     break
-    # 2. Если тега нет, проверяем ответ на сообщение (реплай)
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         target_name = f"@{message.reply_to_message.from_user.username}" if message.reply_to_message.from_user.username else message.reply_to_message.from_user.full_name
@@ -111,35 +97,19 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
         sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
         asyncio.create_task(delete_later(sent, 60))
         return
-        
+
     await user_repo.set_user_role(target_id, "Участник", "Одобрен")
     sent = await message.answer(
-        f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание из API игры синхронизируется в течение минуты.",
+        f"✅ Полномочия <b>{target_name}</b> восстановлены. Реальное звание синхронизируется в течение минуты.",
         parse_mode="HTML")
     asyncio.create_task(delete_later(sent))
 
 
-@router.message(F.text.func(lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])))
+@router.message(F.text.func(
+    lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])),
+                IsModerator())
 async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
-
-    a_role = await user_repo.get_user_role(message.from_user.id)
-    is_founder = str(message.from_user.id) == settings.FOUNDER_ID
-
-    all_users = await user_repo.get_all_users_for_roles()
-    current_user = next((u for u in all_users if u["user_id"] == message.from_user.id), None)
-    a_status = current_user["role_status"] if current_user else "Отклонен"
-
-    if not is_founder:
-        if a_role not in ["Лидер", "Президент", "Вице-президент"] or a_status != "Одобрен":
-            err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
-            asyncio.create_task(delete_later(err_msg, 60))
-            return
-
-    if not is_founder and a_role not in ["Основатель", "Президент", "Вице-президент"]:
-        err_msg = await message.answer("❌ У вас нет прав модератора для выполнения этой команды.")
-        asyncio.create_task(delete_later(err_msg, 60))
-        return
 
     parts = message.text.split()
     cmd = parts[0].lower().strip(string.punctuation)
@@ -147,9 +117,8 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     target_id = None
     target_name = None
 
-    # 1. Поиск тега в тексте (высший приоритет)
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
-    
+
     if target_username:
         all_users = await user_repo.get_all_users_for_roles()
         for u in all_users:
@@ -164,8 +133,6 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
             asyncio.create_task(delete_later(sent_msg, 60))
             return
-            
-    # 2. Если тега нет, берем данные из реплая
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
         u = message.reply_to_message.from_user
@@ -175,31 +142,11 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         asyncio.create_task(delete_later(sent_msg, 60))
         return
 
-    # Очищаем части от тега (чтобы он не попал в парсинг времени или причины)
     clean_parts = [p for p in parts[1:] if p != target_username]
 
     parsed_minutes = None
     time_str = "10 минут"
     reason_parts = []
-
-    time_units_map = {
-        "м": 1, "m": 1, "мин": 1, "минут": 1, "минуту": 1, "минута": 1, "минуты": 1,
-        "ч": 60, "h": 60, "час": 60, "часа": 60, "часов": 60,
-        "д": 1440, "d": 1440, "день": 1440, "дня": 1440, "дней": 1440, "сут": 1440, "сутки": 1440,
-        "н": 10080, "w": 10080, "нед": 10080, "неделю": 10080, "недели": 10080, "недель": 10080,
-        "мес": 43200, "месяц": 43200, "месяца": 43200, "месяцев": 43200,
-        "г": 525600, "y": 525600, "год": 525600, "года": 525600, "лет": 525600
-    }
-
-    implicit_time_map = {
-        "минута": 1, "минуту": 1,
-        "час": 60,
-        "день": 1440, "сутки": 1440,
-        "неделя": 10080, "неделю": 10080,
-        "месяц": 43200,
-        "год": 525600,
-        "навсегда": 0, "пермач": 0
-    }
 
     if cmd in ["бан", "ban"]:
         parsed_minutes = 0
@@ -207,11 +154,11 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         reason_parts = clean_parts
     elif cmd in ["мут", "mute"] and clean_parts:
         first_word = clean_parts[0].lower()
-        if first_word in implicit_time_map:
-            parsed_minutes = implicit_time_map[first_word]
+        if first_word in IMPLICIT_TIME_MAP:
+            parsed_minutes = IMPLICIT_TIME_MAP[first_word]
             reason_parts = clean_parts[1:]
-        elif any(first_word.endswith(s) and first_word[:-len(s)].isdigit() for s in time_units_map.keys()):
-            for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
+        elif any(first_word.endswith(s) and first_word[:-len(s)].isdigit() for s in TIME_UNITS_MAP.keys()):
+            for suffix, multiplier in sorted(TIME_UNITS_MAP.items(), key=lambda x: len(x[0]), reverse=True):
                 if first_word.endswith(suffix):
                     val_str = first_word[:-len(suffix)]
                     if val_str.isdigit():
@@ -223,7 +170,7 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             if len(clean_parts) > 1:
                 second_word = clean_parts[1].lower()
                 matched_multiplier = None
-                for suffix, multiplier in sorted(time_units_map.items(), key=lambda x: len(x[0]), reverse=True):
+                for suffix, multiplier in sorted(TIME_UNITS_MAP.items(), key=lambda x: len(x[0]), reverse=True):
                     if second_word == suffix or second_word.startswith(suffix):
                         matched_multiplier = multiplier
                         break
@@ -240,7 +187,7 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
             reason_parts = clean_parts
 
     if cmd in ["мут", "mute"] and parsed_minutes is None:
-        parsed_minutes = 10 
+        parsed_minutes = 10
 
     dt = None
     if parsed_minutes == 0:
@@ -249,23 +196,33 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         dt = timedelta(minutes=parsed_minutes)
         if parsed_minutes < 60:
             m = parsed_minutes
-            if m % 10 == 1 and m % 100 != 11: time_str = f"{m} минуту"
-            elif 2 <= m % 10 <= 4 and not (12 <= m % 100 <= 14): time_str = f"{m} минуты"
-            else: time_str = f"{m} минут"
+            if m % 10 == 1 and m % 100 != 11:
+                time_str = f"{m} минуту"
+            elif 2 <= m % 10 <= 4 and not (12 <= m % 100 <= 14):
+                time_str = f"{m} минуты"
+            else:
+                time_str = f"{m} минут"
         elif parsed_minutes < 1440:
             h = parsed_minutes // 60
-            if h % 10 == 1 and h % 100 != 11: time_str = f"{h} час"
-            elif 2 <= h % 10 <= 4 and not (12 <= h % 100 <= 14): time_str = f"{h} часа"
-            else: time_str = f"{h} часов"
+            if h % 10 == 1 and h % 100 != 11:
+                time_str = f"{h} час"
+            elif 2 <= h % 10 <= 4 and not (12 <= h % 100 <= 14):
+                time_str = f"{h} часа"
+            else:
+                time_str = f"{h} часов"
         else:
             d = parsed_minutes // 1440
-            if d % 10 == 1 and d % 100 != 11: time_str = f"{d} день"
-            elif 2 <= d % 10 <= 4 and not (12 <= d % 100 <= 14): time_str = f"{d} дня"
-            else: time_str = f"{d} дней"
+            if d % 10 == 1 and d % 100 != 11:
+                time_str = f"{d} день"
+            elif 2 <= d % 10 <= 4 and not (12 <= d % 100 <= 14):
+                time_str = f"{d} дня"
+            else:
+                time_str = f"{d} дней"
 
     reason = " ".join(reason_parts) if reason_parts else "Не указана"
 
     t_role = await user_repo.get_user_role(target_id)
+    a_role = await user_repo.get_user_role(message.from_user.id)
     a_sym = get_combined_symbols(message.from_user.id, a_role)
     t_sym = get_combined_symbols(target_id, t_role)
 
