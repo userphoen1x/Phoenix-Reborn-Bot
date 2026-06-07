@@ -10,14 +10,14 @@ from aiogram.enums import ParseMode
 from core.config import settings
 from database.connection import init_db
 from scheduler.setup import start_scheduler
-from tg_bot.middlewares.db_middleware import ServicesMiddleware
+from tg_bot.middlewares.db_middleware import DBMiddleware
 from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
 from tg_bot.handlers import registration, group_events, group_commands, founder, profile, economy, casino, ai_chat, tops
 
 async def main():
     logging.basicConfig(
-        level=logging.INFO, 
+        level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         force=True
     )
@@ -31,7 +31,7 @@ async def main():
     bot = Bot(token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    dp.update.middleware(ServicesMiddleware(db_path=settings.DB_PATH))
+    dp.update.middleware(DBMiddleware(db_path=settings.DB_PATH))
     dp.message.middleware(AntiSpamMiddleware())
 
     @dp.errors()
