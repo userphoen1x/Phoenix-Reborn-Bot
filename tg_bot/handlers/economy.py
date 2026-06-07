@@ -5,6 +5,7 @@ from aiogram.types import Message
 from services.economy_service import EconomyService
 from tg_bot.filters.role_filters import IsModerator
 from database.repositories.user_repo import UserRepository
+from utils.resolvers import resolve_target
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -22,23 +23,6 @@ async def delete_later(message: Message, delay: int = 10800):
     await asyncio.sleep(delay)
     try: await message.delete()
     except: pass
-
-async def resolve_target(message: Message, user_repo: UserRepository):
-    parts = message.text.split()
-    target_username = next((word for word in parts[1:] if word.startswith("@")), None)
-    if target_username:
-        all_users = await user_repo.get_all_users_for_roles()
-        for u in all_users:
-            tg_name = u.get("tg_name", "")
-            if tg_name:
-                check_name = tg_name.lower() if tg_name.startswith("@") else f"@{tg_name.lower()}"
-                if check_name == target_username.lower():
-                    return u["user_id"], target_username
-    elif message.reply_to_message:
-        u = message.reply_to_message.from_user
-        t_name = f"@{u.username}" if u.username else u.full_name
-        return u.id, t_name
-    return None, None
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["баланс", "б", "bal"])))
 async def cmd_balance(message: Message, eco_service: EconomyService, user_repo: UserRepository):
