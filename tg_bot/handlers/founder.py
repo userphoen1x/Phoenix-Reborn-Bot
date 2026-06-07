@@ -1,5 +1,4 @@
 import os
-import asyncio
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, \
@@ -8,6 +7,7 @@ from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS
+from core.garbage_collector import schedule_delete
 
 router = Router()
 
@@ -127,11 +127,7 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
 
     if not pending_users:
         sent = await message.answer("✅ В базе нет пользователей, ожидающих подтверждения звания.")
-        asyncio.create_task(asyncio.sleep(30))
-        try:
-            await sent.delete()
-        except:
-            pass
+        schedule_delete(sent, 30)
         return
 
     wait_msg = await message.answer("⏳ Проверяю актуальные звания в клубе...")
@@ -156,7 +152,7 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
             continue
 
         display_tg = tg_name if tg_name and tg_name.startswith("@") else f"@{tg_name}" if tg_name else "Игрок"
-        role_eng = "president" if api_role == "Президент" else "vicePresident"
+        role_eng = "president" if api_role == "Президент" else "Вице-президент"
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Да", callback_data=f"role_approve:{u_id}:{role_eng}")],

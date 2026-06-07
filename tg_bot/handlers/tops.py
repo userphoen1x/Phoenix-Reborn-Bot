@@ -8,7 +8,7 @@ from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS, RANK_NAMES
 from tg_bot.keyboards.inline import TopCb, kb_choose_club, kb_main_top, kb_timeframe, kb_wins, kb_wins_sd
-from utils.garbage_collector import schedule_delete
+from core.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -50,7 +50,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     if not args_str:
         kb = await kb_choose_club(uid, brawl_client)
         sent_msg = await message.answer("📊 <b>Выберите клуб:</b>", reply_markup=kb)
-        asyncio.create_task(delete_later(sent_msg))
+        schedule_delete(sent_msg)
         return
 
     args_lower = args_str.lower()
@@ -67,7 +67,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
             live_members, err = await brawl_client.get_all_club_members(c)
             if not live_members or not isinstance(live_members, list):
                 await sent_msg.edit_text("❌ Ошибка загрузки данных из API.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-                asyncio.create_task(delete_later(sent_msg, 60))
+                schedule_delete(sent_msg, 60)
                 return
             tags_filter = [m.get("tag") for m in live_members if isinstance(m, dict) and m.get("tag")]
             baseline_map = await chat_repo.get_baseline_trophies(push_days, tags_filter)
@@ -101,10 +101,10 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
             if not results: txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]])
             await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
-            asyncio.create_task(delete_later(sent_msg))
+            schedule_delete(sent_msg)
         except Exception as e:
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
-            asyncio.create_task(delete_later(sent_msg))
+            schedule_delete(sent_msg)
         return
 
     msg_triggers = {"смс", "соо", "сообщение", "сообщения", "sms", "msg", "messages", "чат", "флуд", "писари"}
@@ -196,7 +196,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     else:
         kb = await kb_choose_club(uid, brawl_client)
         sent_msg = await message.answer("📊 <b>Выберите клуб:</b>", reply_markup=kb)
-    if sent_msg: asyncio.create_task(delete_later(sent_msg))
+    if sent_msg: schedule_delete(sent_msg)
 
 @router.callback_query(TopCb.filter())
 async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):

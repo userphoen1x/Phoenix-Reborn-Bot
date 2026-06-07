@@ -1,4 +1,3 @@
-import asyncio
 import re
 import string
 from datetime import datetime, timedelta
@@ -11,7 +10,7 @@ from utils.resolvers import resolve_target
 from core.config import settings
 from core.constants import ROLE_SYMBOLS
 from tg_bot.filters.role_filters import IsModerator, IsFounder
-from utils.garbage_collector import schedule_delete
+from core.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -33,17 +32,19 @@ def is_cmd(text: str, cmds: list) -> bool:
         if re.match(pattern, t): return True
     return False
 
+
 @router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])), IsFounder())
 async def cmd_demote(message: Message, user_repo: UserRepository):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
         sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
-        return asyncio.create_task(delete_later(sent, 60))
+        schedule_delete(sent, 60)
+        return
 
     await user_repo.set_user_role(target_id, "Гость", "Отклонен")
     sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
                                 parse_mode="HTML")
-    asyncio.create_task(delete_later(sent))
+    schedule_delete(sent)
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])), IsFounder())
@@ -51,11 +52,12 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
         sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
-        return asyncio.create_task(delete_later(sent, 60))
+        schedule_delete(sent, 60)
+        return
 
     await user_repo.set_user_role(target_id, "Участник", "Одобрен")
     sent = await message.answer(f"✅ Полномочия <b>{target_name}</b> восстановлены.", parse_mode="HTML")
-    asyncio.create_task(delete_later(sent))
+    schedule_delete(sent)
 
 
 @router.message(F.text.func(
@@ -71,7 +73,8 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
     if not target_id:
         sent_msg = await message.answer(
             "❌ Ответьте на сообщение пользователя или укажите его @username (игрок должен быть в базе).")
-        return asyncio.create_task(delete_later(sent_msg, 60))
+        schedule_delete(sent_msg, 60)
+        return
 
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
     clean_parts = [p for p in parts[1:] if p != target_username]
@@ -123,10 +126,10 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
 
         pub_text = f"{emoji} Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\n📝 Причина: {reason}"
         pub_msg = await message.answer(pub_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
-        asyncio.create_task(delete_later(pub_msg))
+        schedule_delete(pub_msg)
 
         log_payload = f"🚨 <b>ЛОГ НАКАЗАНИЯ</b>\n\n👮‍♂️ Модератор: {fmt_admin}\n👤 Нарушитель: {fmt_target}\n🛠 Действие: <b>{action_pub}</b>\n📝 Причина: {reason}"
         await send_log(bot, "TOPIC_PUNISH", log_payload)
     except Exception:
         err_msg = await message.answer("❌ Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
-        asyncio.create_task(delete_later(err_msg, 60))
+        schedule_delete(err_msg, 60)

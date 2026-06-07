@@ -1,10 +1,10 @@
-import asyncio
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from database.repositories.user_repo import UserRepository
-from utils.garbage_collector import schedule_delete
+from core.garbage_collector import schedule_delete
 
 router = Router()
+
 
 @router.message(F.new_chat_members)
 async def on_user_join_message(message: Message, bot: Bot, user_repo: UserRepository):
@@ -19,14 +19,14 @@ async def on_user_join_message(message: Message, bot: Bot, user_repo: UserReposi
                 sent = await message.answer(
                     f"🚫 <b>ЗАЙЧИК КИКНУТ</b>\n\nПользователь <a href='tg://user?id={new_user.id}'>{new_user.full_name}</a> попытался войти без регистрации.\n\nПройдите регистрацию в личных сообщениях со мной!",
                     parse_mode="HTML")
-                asyncio.create_task(delete_later(sent, 30))
+                schedule_delete(sent, 30)
             except:
                 pass
         else:
             sent = await message.answer(
                 f"👋 Добро пожаловать, <a href='tg://user?id={new_user.id}'>{new_user.full_name}</a>!",
                 parse_mode="HTML")
-            asyncio.create_task(delete_later(sent, 60))
+            schedule_delete(sent, 60)
     try:
         await message.delete()
     except:

@@ -34,7 +34,10 @@ async def main():
     @dp.errors()
     async def global_error_handler(event, **kwargs):
         logging.error(f"Error: {event.exception}")
-        await send_log(bot, "TOPIC_SESSION", f"🔥 <b>Критический сбой бота:</b>\n<code>{event.exception}</code>")
+        try:
+            await send_log(bot, "TOPIC_SESSION", f"🔥 <b>Критический сбой бота:</b>\n<code>{event.exception}</code>")
+        except Exception:
+            pass
         return True
 
     global_scheduler.start()

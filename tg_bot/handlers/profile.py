@@ -1,4 +1,3 @@
-import asyncio
 import re
 import string
 from aiogram import Router, F
@@ -9,10 +8,11 @@ from database.repositories.chat_repo import ChatRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS, RANK_NAMES
-from utils.garbage_collector import schedule_delete
+from core.garbage_collector import schedule_delete
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
+
 
 def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
@@ -44,7 +44,7 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
                     break
         if not found:
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе данных.")
-            asyncio.create_task(delete_later(sent_msg, 60))
+            schedule_delete(sent_msg, 60)
             return
     elif message.reply_to_message:
         target_id = message.reply_to_message.from_user.id
@@ -127,7 +127,7 @@ async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: 
                     break
         if not found:
             sent_msg = await message.answer(f"❌ Пользователь {target_username} не найден в базе.")
-            asyncio.create_task(delete_later(sent_msg, 60))
+            schedule_delete(sent_msg, 60)
             return
 
     elif message.reply_to_message:

@@ -12,13 +12,13 @@ class CasinoService:
 
     async def get_balance(self, user_id: int) -> int:
         eco = await self.eco_repo.get_eco_data(user_id)
-        if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError()
+        if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError("Пользователь не зарегистрирован.")
         return eco["balance"]
 
     async def charge_bet(self, user_id: int, bet: int) -> int:
         eco = await self.eco_repo.get_eco_data(user_id)
-        if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError()
-        if eco["balance"] < bet: raise NotEnoughMoneyError()
+        if not eco or not eco.get("bs_tag"): raise UserNotRegisteredError("Пользователь не зарегистрирован.")
+        if eco["balance"] < bet: raise NotEnoughMoneyError("Недостаточно средств на балансе.")
         await self.eco_repo.update_balance(user_id, -bet)
         return eco["balance"] - bet
 
