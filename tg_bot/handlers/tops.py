@@ -1,19 +1,16 @@
 import asyncio
-import logging
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
 from aiogram.filters.callback_data import CallbackData
-
 from database.repositories.user_repo import UserRepository
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.economy_repo import EconomyRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
+from core.constants import ROLE_SYMBOLS, RANK_NAMES
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-
-ROLE_SYMBOLS = {"Основатель": "👑", "Разработчик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
 
 class TopCb(CallbackData, prefix="top"):
     act: str
@@ -30,10 +27,6 @@ async def delete_later(message: Message, delay: int = 10800):
     try: await message.delete()
     except: pass
 
-def get_rank_name(val: int):
-    ranks = {1: "🥉 Бронза 1", 2: "🥉 Бронза 2", 3: "🥉 Бронза 3", 4: "🥈 Серебро 1", 5: "🥈 Серебро 2", 6: "🥈 Серебро 3", 7: "🥇 Золото 1", 8: "🥇 Золото 2", 9: "🥇 Золото 3", 10: "💎 Алмаз 1", 11: "💎 Алмаз 2", 12: "💎 Алмаз 3", 13: "🟣 Мифик 1", 14: "🟣 Мифик 2", 15: "🟣 Мифик 3", 16: "🔴 Лега 1", 17: "🔴 Лега 2", 18: "🔴 Лега 3", 19: "🟡 Мастер 1", 20: "🟡 Мастер 2", 21: "🟡 Мастер 3", 22: "🟢 Про"}
-    return ranks.get(val, "🏳️ Без ранга")
-
 def make_link(display_name: str, tg_name: str, tg_id: int) -> str:
     if tg_name and tg_name.startswith("@"): return f"<a href='https://t.me/{tg_name[1:]}'>{display_name}</a>"
     return f"<b>{display_name}</b>"
@@ -44,8 +37,8 @@ async def get_roles_bulk(uids: list, user_repo: UserRepository):
         try:
             game_role = await user_repo.get_user_role(uid)
             syms = ""
-            if str(uid) == settings.FOUNDER_ID: syms += ROLE_SYMBOLS.get("Главарь", "👑")
-            if str(uid) in settings.DEVELOPER_IDS: syms += ROLE_SYMBOLS.get("Программист", "🧑🏻‍💻")
+            if str(uid) == settings.FOUNDER_ID: syms += ROLE_SYMBOLS.get("Лидер", "👑")
+            if str(uid) in settings.DEVELOPER_IDS: syms += ROLE_SYMBOLS.get("Разработчик", "🧑🏻‍💻")
             syms += ROLE_SYMBOLS.get(game_role, "🗣️")
             return syms
         except: return "🗣️"
@@ -118,17 +111,14 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
             baseline_map = await chat_repo.get_baseline_trophies(push_days, tags_filter)
             results = []
             for m in live_members:
-                if not isinstance(m, dict):
-                    continue
+                if not isinstance(m, dict): continue
                 tag = m.get("tag")
-                if not tag:
-                    continue
+                if not tag: continue
                 live_cups = int(m.get("trophies", 0) or 0)
                 base_raw = baseline_map.get(tag)
                 baseline = int(base_raw) if base_raw is not None else live_cups
                 gain = live_cups - baseline
-                if gain > 0:
-                    results.append((m.get("name", "Игрок"), gain, tag))
+                if gain > 0: results.append((m.get("name", "Игрок"), gain, tag))
             results.sort(key=lambda x: x[1], reverse=True)
             results = results[:10]
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
@@ -146,13 +136,11 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-            if not results:
-                txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
+            if not results: txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]])
             await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(sent_msg))
         except Exception as e:
-            logging.exception("Ошибка в текстовой команде роста кубков:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
             asyncio.create_task(delete_later(sent_msg))
         return
@@ -187,7 +175,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
         try:
             members, err = await brawl_client.get_all_club_members(c)
-            if not members or not isinstance(members, list): 
+            if not members or not isinstance(members, list):
                 await sent_msg.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
@@ -210,14 +198,13 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
                 await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в топе общих кубков:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
         sent_msg = await message.answer("⏳ Собираю актуальные данные...")
         try:
             members, err = await brawl_client.get_live_club_detailed_stats(c)
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
-            if not members or not isinstance(members, list): 
+            if not members or not isinstance(members, list):
                 await sent_msg.edit_text("❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0), reverse=True)
@@ -236,14 +223,13 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     sym = syms_list[i]
                     r_val = int(m.get("ranked_curr_rank", 0) or 0)
                     e_val = int(m.get("ranked_curr_elo", 0) or 0)
-                    r_name = get_rank_name(r_val)
+                    r_name = RANK_NAMES.get(r_val, "🏳️ Без ранга")
                     name_link = make_link(m.get('name', 'Игрок'), tg_name, t_uid)
                     place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                     txt += f"{place} {sym} {name_link}: {r_name} ({e_val})\n"
                 if err: txt += f"\nОшибки: {err}"
                 await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в топе ранкеда:")
             await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid, brawl_client)
@@ -282,7 +268,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в топе богачей:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -311,7 +296,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
             await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка коллбэка общих кубков:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
         await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -344,12 +328,11 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 if act == "ranks_curr":
                     r_val = int(m.get("ranked_curr_rank", 0) or 0)
                     e_val = int(m.get("ranked_curr_elo", 0) or 0)
-                    txt += f"{place} {sym} {name_link}: {get_rank_name(r_val)} ({e_val})\n"
+                    txt += f"{place} {sym} {name_link}: {RANK_NAMES.get(r_val, '🏳️ Без ранга')} ({e_val})\n"
                 else: txt += f"{place} {sym} {name_link}: {sort_key(m)}\n"
             if err: txt += f"\nОшибки: {err}"
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в коллбэках побед/ранкеда:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("msg_"):
         await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
@@ -367,7 +350,6 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 txt += f"{place} {sym} {name_link}: {v}\n"
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в топе сообщений:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("cups_gain_"):
         d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}.get(act, 1)
@@ -382,17 +364,14 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
             baseline_map = await chat_repo.get_baseline_trophies(d, tags_filter)
             results = []
             for m in live_members:
-                if not isinstance(m, dict):
-                    continue
+                if not isinstance(m, dict): continue
                 tag = m.get("tag")
-                if not tag:
-                    continue
+                if not tag: continue
                 live_cups = int(m.get("trophies", 0) or 0)
                 base_raw = baseline_map.get(tag)
                 baseline = int(base_raw) if base_raw is not None else live_cups
                 gain = live_cups - baseline
-                if gain > 0:
-                    results.append((m.get("name", "Игрок"), gain, tag))
+                if gain > 0: results.append((m.get("name", "Игрок"), gain, tag))
             results.sort(key=lambda x: x[1], reverse=True)
             top_10 = results[:10]
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
@@ -410,9 +389,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-            if not top_10:
-                txt += "📭 Пока нет данных для расчета."
+            if not top_10: txt += "📭 Пока нет данных для расчета."
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            logging.exception("Ошибка в коллбэке роста кубков:")
             await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))

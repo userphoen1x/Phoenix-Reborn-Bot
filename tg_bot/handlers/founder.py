@@ -2,25 +2,27 @@ import os
 import asyncio
 from aiogram import Router, Bot, F
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, LinkPreviewOptions
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, \
+    LinkPreviewOptions
 from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
+from core.constants import ROLE_SYMBOLS
 
-# Роутер создается здесь, ДО того как мы начинаем вешать на него команды
 router = Router()
+
 
 def is_tech_admin(user_id: int) -> bool:
     return str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
 
-ROLE_SYMBOLS = {"Основатель": "👑", "Разрабочик": "🧑🏻‍💻", "Президент": "🌟", "Вице-президент": "⭐", "Ветеран": "🎖", "Участник": "👤", "Гость": "🗣️"}
 
 @router.message(Command("unlink"))
 async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
     if not is_tech_admin(message.from_user.id): return
     parts = message.text.split()
     target_name = None
-    if len(parts) > 1 and parts[1].startswith("@"): target_name = parts[1]
+    if len(parts) > 1 and parts[1].startswith("@"):
+        target_name = parts[1]
     elif message.reply_to_message:
         u = message.reply_to_message.from_user
         target_name = f"@{u.username}" if u.username else u.full_name
@@ -28,23 +30,36 @@ async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
         await message.answer("Укажите @username или ответьте на сообщение пользователя.")
         return
     res = await user_repo.unlink_user_tag(target_name)
-    if res: await message.answer(f"✅ Тег успешно отвязан от профиля {target_name}, пользователь переведен в Гости.")
-    else: await message.answer(f"❌ Пользователь {target_name} не найден в базе.")
+    if res:
+        await message.answer(f"✅ Тег успешно отвязан от профиля {target_name}, пользователь переведен в Гости.")
+    else:
+        await message.answer(f"❌ Пользователь {target_name} не найден в базе.")
+
 
 @router.message(Command("set_key"))
 async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
     if not is_tech_admin(message.from_user.id): return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        return await message.answer("❌ Укажите новый ключ. Пример:\n<code>/set_key eyJhbGciOi...</code>", parse_mode="HTML")
+        return await message.answer("❌ Укажите новый ключ. Пример:\n<code>/set_key eyJhbGciOi...</code>",
+                                    parse_mode="HTML")
     new_key = parts[1].strip()
     settings.BS_API_KEY = new_key
     wait_msg = await message.answer("⏳ Проверяю новый ключ и IP-адрес...")
     is_valid, status_msg = await brawl_client.check_api_connection()
-    if is_valid: await wait_msg.edit_text("✅ <b>API ключ успешно обновлен!</b>\nСвязь с серверами Brawl Stars установлена (200 OK).", parse_mode="HTML")
-    else: await wait_msg.edit_text(f"⚠️ <b>Ключ сохранен, но API недоступно!</b>\nВозможно, вы не добавили новый IP в белый список Supercell.\nОшибка: <code>{status_msg}</code>", parse_mode="HTML")
-    try: await message.delete()
-    except: pass
+    if is_valid:
+        await wait_msg.edit_text(
+            "✅ <b>API ключ успешно обновлен!</b>\nСвязь с серверами Brawl Stars установлена (200 OK).",
+            parse_mode="HTML")
+    else:
+        await wait_msg.edit_text(
+            f"⚠️ <b>Ключ сохранен, но API недоступно!</b>\nВозможно, вы не добавили новый IP в белый список Supercell.\nОшибка: <code>{status_msg}</code>",
+            parse_mode="HTML")
+    try:
+        await message.delete()
+    except:
+        pass
+
 
 @router.message(Command("ping"))
 async def admin_ping(message: Message, brawl_client: BrawlAPIClient):
@@ -53,12 +68,15 @@ async def admin_ping(message: Message, brawl_client: BrawlAPIClient):
     ok, text = await brawl_client.check_api_connection()
     await wait_msg.edit_text(f"Статус API:\n{text}")
 
+
 @router.message(Command("get_db"))
 async def admin_get_db(message: Message):
     if not is_tech_admin(message.from_user.id): return
     if os.path.exists(settings.DB_PATH):
         await message.answer_document(document=FSInputFile(settings.DB_PATH), caption="🗄 База данных")
-    else: await message.answer("❌ Файл не найден")
+    else:
+        await message.answer("❌ Файл не найден")
+
 
 @router.message(Command("force_roles"))
 async def cmd_force_roles(message: Message, bot: Bot):
@@ -67,6 +85,7 @@ async def cmd_force_roles(message: Message, bot: Bot):
     from scheduler.jobs import check_roles
     await check_roles(bot)
     await message.answer("✅ Проверка завершена.")
+
 
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserRepository):
@@ -89,6 +108,7 @@ async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserReposit
     except Exception as e:
         await callback.message.edit_text(f"❌ Ошибка обновления базы данных: {e}")
 
+
 @router.callback_query(F.data.startswith("role_reject:"))
 async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
     if str(callback.from_user.id) != settings.FOUNDER_ID: return await callback.answer("Нет прав", show_alert=True)
@@ -96,6 +116,7 @@ async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
     user_id = int(uid_str)
     await user_repo.set_user_role(user_id, "Участник", "Отклонен")
     await callback.message.edit_text(f"Запрос на выдачу прав (ID: {user_id}) отклонен.")
+
 
 @router.message(F.text.lower().startswith(("запросы", "/запросы")))
 async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserRepository, brawl_client: BrawlAPIClient):
@@ -149,39 +170,41 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
                 await bot.send_message(settings.FOUNDER_ID, msg_text, reply_markup=kb, parse_mode="HTML")
                 count += 1
         except Exception:
-            pass 
+            pass
 
     await wait_msg.edit_text(f"✅ Актуальные запросы ({count} шт.) отправлены Главару в ЛС.")
+
 
 @router.message(Command("force_scan"), F.chat.type == "private")
 async def admin_force_scan(message: Message):
     if not is_tech_admin(message.from_user.id): return
-    
+
     sent_msg = await message.answer("⏳ Собираю данные...")
     from scheduler.jobs import collect_daily_stats
     await collect_daily_stats()
     await sent_msg.edit_text("✅ Готово. Сбор данных завершен.")
 
+
 @router.message(Command("all_reg_list"), F.chat.type == "private")
 async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
     a_role = await user_repo.get_user_role(message.from_user.id)
-    if not is_tech_admin(message.from_user.id) and a_role not in ["Президент", "Вице-президент"]: 
+    if not is_tech_admin(message.from_user.id) and a_role not in ["Президент", "Вице-президент"]:
         return
 
     users = await user_repo.get_all_registered_users()
     if not users:
         await message.answer("📭 Список зарегистрированных пользователей пуст.")
         return
-        
+
     lines = ["📋 <b>Список зарегистрированных игроков:</b>\n"]
     for i, (tg_name, tag, player_name) in enumerate(users, 1):
         name_str = tg_name if tg_name.startswith("@") else f"<b>{tg_name}</b>"
         lines.append(f"{i}. {name_str} привязан к тегу {tag} ({player_name})")
-        
+
     text = "\n".join(lines)
     for x in range(0, len(text), 4000):
         await message.answer(
-            text[x:x + 4000], 
-            parse_mode="HTML", 
+            text[x:x + 4000],
+            parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True)
         )
