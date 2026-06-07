@@ -1,21 +1,16 @@
 import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
-from aiogram.filters.callback_data import CallbackData
 from database.repositories.user_repo import UserRepository
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.economy_repo import EconomyRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.constants import ROLE_SYMBOLS, RANK_NAMES
+from tg_bot.keyboards.inline import TopCb, kb_choose_club, kb_main_top, kb_timeframe, kb_wins, kb_wins_sd
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-
-class TopCb(CallbackData, prefix="top"):
-    act: str
-    uid: int
-    c: str
 
 def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
@@ -43,35 +38,6 @@ async def get_roles_bulk(uids: list, user_repo: UserRepository):
             return syms
         except: return "🗣️"
     return await asyncio.gather(*(safe_get(uid) for uid in uids))
-
-async def kb_choose_club(uid: int, brawl_client: BrawlAPIClient):
-    clan_names = await brawl_client.get_clan_names()
-    buttons = [[InlineKeyboardButton(text="🌐 Всего семейства", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]
-    for tag, name in clan_names.items():
-        clean = tag.replace("#", "")
-        buttons.append([InlineKeyboardButton(text=f"🏰 {name}", callback_data=TopCb(act="cat", uid=uid, c=clean).pack())])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def kb_main_top(uid: int, c: str):
-    buttons = []
-    if c == "ALL": buttons.append([InlineKeyboardButton(text="💬 Сообщения", callback_data=TopCb(act="msg", uid=uid, c=c).pack()), InlineKeyboardButton(text="💰 Богачи", callback_data=TopCb(act="eco", uid=uid, c=c).pack())])
-    buttons.append([InlineKeyboardButton(text="📈 Рост кубков", callback_data=TopCb(act="cups_gain", uid=uid, c=c).pack()), InlineKeyboardButton(text="🏆 Общие кубки", callback_data=TopCb(act="cups_cur", uid=uid, c=c).pack())])
-    buttons.append([InlineKeyboardButton(text="⚔️ Победы", callback_data=TopCb(act="wins", uid=uid, c=c).pack()), InlineKeyboardButton(text="🎖 Ранкед", callback_data=TopCb(act="ranks_curr", uid=uid, c=c).pack())])
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад к клубам", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-def kb_timeframe(prefix: str, back: str, uid: int, c: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📅 День", callback_data=TopCb(act=f"{prefix}_day", uid=uid, c=c).pack()), InlineKeyboardButton(text="🗓 Неделя", callback_data=TopCb(act=f"{prefix}_week", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="📆 Месяц", callback_data=TopCb(act=f"{prefix}_month", uid=uid, c=c).pack()), InlineKeyboardButton(text="🗃 Все время", callback_data=TopCb(act=f"{prefix}_all", uid=uid, c=c).pack())],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act=back, uid=uid, c=c).pack())]
-    ])
-
-def kb_wins(uid: int, c: str):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⚔️ 3 на 3", callback_data=TopCb(act="wins_3v3", uid=uid, c=c).pack())], [InlineKeyboardButton(text="🌵 ШД", callback_data=TopCb(act="wins_sd", uid=uid, c=c).pack())], [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
-
-def kb_wins_sd(uid: int, c: str):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="👥 Дуо", callback_data=TopCb(act="wins_sd_duo", uid=uid, c=c).pack()), InlineKeyboardButton(text="👤 Соло", callback_data=TopCb(act="wins_sd_solo", uid=uid, c=c).pack())], [InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="wins", uid=uid, c=c).pack())]])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["топ", "top", "топ10", "top10", "топ 10", "top 10"])))
 async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):

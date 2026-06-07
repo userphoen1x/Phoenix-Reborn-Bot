@@ -3,11 +3,11 @@ import os
 import random
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
-from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from services.casino_service import CasinoService
 from core.exceptions import UserNotRegisteredError, NotEnoughMoneyError
 from core.constants import SAPER_DIFFS
+from tg_bot.keyboards.inline import CasinoCb, BjCb, SaperSetupCb, SaperCb, kb_casino_main, kb_casino_bet, kb_saper_setup_bet, kb_saper_setup_diff, kb_saper_game
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}), lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
@@ -15,22 +15,6 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}), lambda msg: str(
 LAST_GAME_MSGS = {}
 BJ_GAMES = {}
 SAPER_GAMES = {}
-
-class CasinoCb(CallbackData, prefix="cas"):
-    act: str
-    game: str
-    val: str = "0"
-
-class BjCb(CallbackData, prefix="bj"):
-    act: str
-
-class SaperSetupCb(CallbackData, prefix="spset"):
-    act: str
-    val: str
-
-class SaperCb(CallbackData, prefix="sap"):
-    act: str
-    idx: int
 
 def is_cmd(text: str, cmds: list) -> bool:
     if not text: return False
@@ -70,62 +54,6 @@ def calc_hand(hand):
         val -= 10
         aces -= 1
     return val
-
-def kb_casino_main(balance: int):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🃏 Блэкджек (21)", callback_data=CasinoCb(act="bet", game="bj").pack()), InlineKeyboardButton(text="💣 Сапёр", callback_data=CasinoCb(act="saper_route", game="saper").pack())],
-        [InlineKeyboardButton(text="🎰 Слоты", callback_data=CasinoCb(act="bet", game="slot").pack()), InlineKeyboardButton(text="🎲 Кости", callback_data=CasinoCb(act="bet", game="dice").pack())],
-        [InlineKeyboardButton(text="🎯 Дартс", callback_data=CasinoCb(act="bet", game="darts").pack()), InlineKeyboardButton(text="🎳 Боулинг", callback_data=CasinoCb(act="bet", game="bowl").pack())],
-        [InlineKeyboardButton(text="⚽️ Футбол", callback_data=CasinoCb(act="bet", game="fball").pack()), InlineKeyboardButton(text="🏀 Баскетбол", callback_data=CasinoCb(act="bet", game="bball").pack())],
-        [InlineKeyboardButton(text="❌ Закрыть", callback_data=CasinoCb(act="close", game="none").pack())]
-    ])
-
-def kb_casino_bet(game: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💵 10", callback_data=CasinoCb(act="play", game=game, val="10").pack()), InlineKeyboardButton(text="💵 50", callback_data=CasinoCb(act="play", game=game, val="50").pack()), InlineKeyboardButton(text="💵 100", callback_data=CasinoCb(act="play", game=game, val="100").pack())],
-        [InlineKeyboardButton(text="💸 500", callback_data=CasinoCb(act="play", game=game, val="500").pack()), InlineKeyboardButton(text="💸 1000", callback_data=CasinoCb(act="play", game=game, val="1000").pack()), InlineKeyboardButton(text="🏦 ВА-БАНК", callback_data=CasinoCb(act="play", game=game, val="all").pack())],
-        [InlineKeyboardButton(text="⬅️ Назад к играм", callback_data=CasinoCb(act="menu", game="none").pack())]
-    ])
-
-def kb_saper_setup_bet():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💵 50", callback_data=SaperSetupCb(act="bet", val="50").pack()), InlineKeyboardButton(text="💵 100", callback_data=SaperSetupCb(act="bet", val="100").pack())],
-        [InlineKeyboardButton(text="💸 500", callback_data=SaperSetupCb(act="bet", val="500").pack()), InlineKeyboardButton(text="💸 1000", callback_data=SaperSetupCb(act="bet", val="1000").pack())],
-        [InlineKeyboardButton(text="🏦 ВА-БАНК", callback_data=SaperSetupCb(act="bet", val="all").pack())],
-        [InlineKeyboardButton(text="⬅️ Назад к играм", callback_data=CasinoCb(act="menu", game="none").pack())]
-    ])
-
-def kb_saper_setup_diff(bet: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🟢 Легкий (5 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="easy").pack())],
-        [InlineKeyboardButton(text="🟡 Средний (12 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="medium").pack())],
-        [InlineKeyboardButton(text="🔴 Трудный (20 мин)", callback_data=SaperSetupCb(act=f"start_{bet}", val="hard").pack())],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data=SaperSetupCb(act="cancel", val="0").pack())]
-    ])
-
-def kb_saper_game(user_id: int, game_over=False):
-    game = SAPER_GAMES.get(user_id)
-    if not game: return None
-    kb = []
-    grid = game["grid"]
-    clicked = game["clicked"]
-    for row in range(5):
-        row_btns = []
-        for col in range(5):
-            idx = row * 5 + col
-            if not game_over:
-                text = "💎" if idx in clicked else "⬜️"
-                cb = SaperCb(act="click", idx=idx).pack()
-            else:
-                if grid[idx] == 1: text = "💥" if idx in clicked else "💣"
-                else: text = "💎" if idx in clicked else "⬜️"
-                cb = "ignore"
-            row_btns.append(InlineKeyboardButton(text=text, callback_data=cb))
-        kb.append(row_btns)
-    if not game_over and len(clicked) > 0:
-        current_win = int(game["bet"] * game["mult"])
-        kb.append([InlineKeyboardButton(text=f"🛑 Забрать {current_win} ₣", callback_data=SaperCb(act="cashout", idx=-1).pack())])
-    return InlineKeyboardMarkup(inline_keyboard=kb)
 
 @router.message(lambda msg: is_cmd(msg.text, ["казик", "казино", "игра", "игры", "casino", "games"]))
 async def cmd_casino_main(message: Message, casino_service: CasinoService):
@@ -407,7 +335,7 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
         if isinstance(bot_msg, CallbackQuery):
             try: await bot_msg.message.delete()
             except: pass
-        sent_msg = await bot.send_message(chat_id, text, reply_markup=kb_saper_game(user_id), parse_mode="HTML")
+        sent_msg = await bot.send_message(chat_id, text, reply_markup=kb_saper_game(SAPER_GAMES[user_id]), parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
         asyncio.create_task(delete_later(sent_msg))
     except (UserNotRegisteredError, NotEnoughMoneyError) as e:
@@ -436,7 +364,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
         win_amount = int(game["bet"] * game["mult"])
         await casino_service.credit_win(user_id, win_amount)
         text = f"💰 <b>ДЕНЬГИ СНЯТЫ!</b>\n\n👤 Игрок: <b>{game['name']}</b>\n🕹 Сложность: <b>{SAPER_DIFFS[game['diff']]['name']}</b>\n📥 Забрано: <b>{win_amount} ₣</b> (x{game['mult']:.1f})"
-        kb = kb_saper_game(user_id, game_over=True)
+        kb = kb_saper_game(game, game_over=True)
         kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию", callback_data=SaperSetupCb(act=f"start_{game['bet']}", val=game['diff']).pack())])
         kb.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())])
         await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -447,7 +375,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
         if game["grid"][idx] == 1:
             game["clicked"].append(idx)
             text = f"💥 <b>БУМ! ВЫ ПРОИГРАЛИ!</b> 💥\n\n👤 Игрок: <b>{game['name']}</b>\n💸 Потеряно: <b>{game['bet']} ₣</b>\n<i>Мина оказалась прямо под ногой...</i>"
-            kb = kb_saper_game(user_id, game_over=True)
+            kb = kb_saper_game(game, game_over=True)
             kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию", callback_data=SaperSetupCb(act=f"start_{game['bet']}", val=game['diff']).pack())])
             kb.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())])
             await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -460,7 +388,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
             win_amount = int(game["bet"] * game["mult"])
             await casino_service.credit_win(user_id, win_amount)
             text = f"🏆 <b>ИДЕАЛЬНАЯ ПОБЕДА!</b> 🏆\n\n👤 Игрок: <b>{game['name']}</b>\n🎉 Все безопасные ячейки найдены!\n🤑 Выигрыш: <b>{win_amount} ₣</b> (x{game['mult']:.1f})"
-            kb = kb_saper_game(user_id, game_over=True)
+            kb = kb_saper_game(game, game_over=True)
             kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию", callback_data=SaperSetupCb(act=f"start_{game['bet']}", val=game['diff']).pack())])
             kb.inline_keyboard.append([InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())])
             await callback.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
@@ -468,5 +396,5 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
             return
         current_win = int(game["bet"] * game["mult"])
         text = f"💣 <b>САПЕР</b> 💣\n\n👤 Игрок: <b>{game['name']}</b>\n🕹 Сложность: <b>{SAPER_DIFFS[game['diff']]['name']}</b>\n💸 Ставка: <b>{game['bet']}</b> ₣\n💰 Выигрыш: <b>{current_win} ₣</b> (x{game['mult']:.2f})\n\n<i>Играем дальше или забираем?</i>"
-        try: await callback.message.edit_text(text, reply_markup=kb_saper_game(user_id), parse_mode="HTML")
+        try: await callback.message.edit_text(text, reply_markup=kb_saper_game(game), parse_mode="HTML")
         except: pass
