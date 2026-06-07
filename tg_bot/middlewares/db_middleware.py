@@ -6,17 +6,18 @@ from database.repositories.user_repo import UserRepository
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.economy_repo import EconomyRepository
 from external.brawl_api import BrawlAPIClient
+from external.groq_client import GroqClient
 from services.economy_service import EconomyService
 from services.casino_service import CasinoService
-
+from services.ai_service import AiService
 
 class DBMiddleware(BaseMiddleware):
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.brawl_client = BrawlAPIClient()
+        self.groq_client = GroqClient()
 
-    async def __call__(self, handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]], event: TelegramObject,
-                       data: Dict[str, Any]) -> Any:
+    async def __call__(self, handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]], event: TelegramObject, data: Dict[str, Any]) -> Any:
         async with aiosqlite.connect(self.db_path) as db:
             user_repo = UserRepository(db)
             chat_repo = ChatRepository(db)
@@ -24,6 +25,7 @@ class DBMiddleware(BaseMiddleware):
 
             eco_service = EconomyService(eco_repo, user_repo)
             casino_service = CasinoService(eco_repo, user_repo)
+            ai_service = AiService(chat_repo, self.groq_client)
 
             data["user_repo"] = user_repo
             data["chat_repo"] = chat_repo
@@ -31,5 +33,6 @@ class DBMiddleware(BaseMiddleware):
             data["brawl_client"] = self.brawl_client
             data["eco_service"] = eco_service
             data["casino_service"] = casino_service
+            data["ai_service"] = ai_service
 
             return await handler(event, data)
