@@ -8,7 +8,8 @@ from services.moderation_service import ModerationService
 from utils.admin_logger import send_log
 from utils.resolvers import resolve_target
 from core.config import settings
-from core.constants import ROLE_SYMBOLS
+from core.constants import ROLE_SYMBOLS, DELAYS
+from core.lexicon import LEXICON
 from tg_bot.filters.role_filters import IsModerator, IsFounder
 from core.garbage_collector import schedule_delete
 
@@ -37,27 +38,26 @@ def is_cmd(text: str, cmds: list) -> bool:
 async def cmd_demote(message: Message, user_repo: UserRepository):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
-        sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["mod_err_no_target"])
+        schedule_delete(sent, DELAYS["default"])
         return
 
     await user_repo.set_user_role(target_id, "Гость", "Отклонен")
-    sent = await message.answer(f"⬇️ <b>{target_name}</b> понижен до Гостя и лишен системных полномочий в боте.",
-                                parse_mode="HTML")
-    schedule_delete(sent)
+    sent = await message.answer(LEXICON["mod_success_demote"].format(target=target_name), parse_mode="HTML")
+    schedule_delete(sent, DELAYS["short"])
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])), IsFounder())
 async def cmd_restore_rank(message: Message, user_repo: UserRepository):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
-        sent = await message.answer("❌ Укажите @username или ответьте на сообщение пользователя.")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["mod_err_no_target"])
+        schedule_delete(sent, DELAYS["default"])
         return
 
     await user_repo.set_user_role(target_id, "Участник", "Одобрен")
-    sent = await message.answer(f"✅ Полномочия <b>{target_name}</b> восстановлены.", parse_mode="HTML")
-    schedule_delete(sent)
+    sent = await message.answer(LEXICON["mod_success_restore"].format(target=target_name), parse_mode="HTML")
+    schedule_delete(sent, DELAYS["short"])
 
 
 @router.message(F.text.func(
@@ -71,9 +71,8 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
 
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
-        sent_msg = await message.answer(
-            "❌ Ответьте на сообщение пользователя или укажите его @username (игрок должен быть в базе).")
-        schedule_delete(sent_msg, 60)
+        sent_msg = await message.answer(LEXICON["mod_err_not_in_db"])
+        schedule_delete(sent_msg, DELAYS["default"])
         return
 
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
@@ -124,12 +123,14 @@ async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
         except:
             pass
 
-        pub_text = f"{emoji} Пользователь {fmt_target} был {action_pub} администратором {fmt_admin}.\n📝 Причина: {reason}"
+        pub_text = LEXICON["mod_punish_public"].format(emoji=emoji, target=fmt_target, action=action_pub,
+                                                       admin=fmt_admin, reason=reason)
         pub_msg = await message.answer(pub_text, link_preview_options=LinkPreviewOptions(is_disabled=True))
-        schedule_delete(pub_msg)
+        schedule_delete(pub_msg, DELAYS["long"])
 
-        log_payload = f"🚨 <b>ЛОГ НАКАЗАНИЯ</b>\n\n👮‍♂️ Модератор: {fmt_admin}\n👤 Нарушитель: {fmt_target}\n🛠 Действие: <b>{action_pub}</b>\n📝 Причина: {reason}"
+        log_payload = LEXICON["mod_log_punish"].format(admin=fmt_admin, target=fmt_target, action=action_pub,
+                                                       reason=reason)
         await send_log(bot, "TOPIC_PUNISH", log_payload)
     except Exception:
-        err_msg = await message.answer("❌ Ошибка выполнения: боту не хватает прав или цель имеет иммунитет.")
-        schedule_delete(err_msg, 60)
+        err_msg = await message.answer(LEXICON["mod_err_fail"])
+        schedule_delete(err_msg, DELAYS["default"])

@@ -6,6 +6,8 @@ from tg_bot.filters.role_filters import IsModerator
 from database.repositories.user_repo import UserRepository
 from utils.resolvers import resolve_target
 from core.garbage_collector import schedule_delete
+from core.lexicon import LEXICON
+from core.constants import DELAYS
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -30,11 +32,11 @@ async def cmd_balance(message: Message, eco_service: EconomyService, user_repo: 
 
     try:
         bal = await eco_service.get_balance(target_id)
-        sent = await message.answer(f"💰 Баланс {target_name}: <b>{bal} ₣</b>", parse_mode="HTML")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["eco_balance"].format(target=target_name, balance=bal), parse_mode="HTML")
+        schedule_delete(sent, DELAYS["default"])
     except Exception as e:
-        sent = await message.answer(f"❌ {e}")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["error_generic"].format(error=e))
+        schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["перевод", "pay", "give"])))
 async def cmd_transfer(message: Message, eco_service: EconomyService, user_repo: UserRepository):
@@ -43,20 +45,20 @@ async def cmd_transfer(message: Message, eco_service: EconomyService, user_repo:
     target_id, target_name = await resolve_target(message, user_repo)
 
     if not amount or not target_id:
-        sent = await message.answer("❌ Формат: <code>/перевод [сумма] [@user или реплай]</code>", parse_mode="HTML")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["eco_err_format_transfer"], parse_mode="HTML")
+        schedule_delete(sent, DELAYS["default"])
         return
 
     if target_id == message.from_user.id:
-        return await message.answer("❌ Нельзя перевести самому себе.")
+        return await message.answer(LEXICON["eco_err_self_transfer"])
 
     try:
         await eco_service.transfer(message.from_user.id, target_id, amount)
-        sent = await message.answer(f"✅ Успешный перевод!\n💸 Вы отправили <b>{amount} ₣</b> пользователю {target_name}.", parse_mode="HTML")
-        schedule_delete(sent)
+        sent = await message.answer(LEXICON["eco_success_transfer"].format(amount=amount, target=target_name), parse_mode="HTML")
+        schedule_delete(sent, DELAYS["short"])
     except Exception as e:
-        sent = await message.answer(f"❌ {e}")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["error_generic"].format(error=e))
+        schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["начислить", "addmoney"])), IsModerator())
 async def cmd_add_money(message: Message, eco_service: EconomyService, user_repo: UserRepository):
@@ -65,17 +67,17 @@ async def cmd_add_money(message: Message, eco_service: EconomyService, user_repo
     target_id, target_name = await resolve_target(message, user_repo)
 
     if not amount or not target_id:
-        sent = await message.answer("❌ Формат: <code>/начислить [сумма] [@user или реплай]</code>", parse_mode="HTML")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["eco_err_format_add"], parse_mode="HTML")
+        schedule_delete(sent, DELAYS["default"])
         return
 
     try:
         await eco_service.add_money(target_id, amount)
-        sent = await message.answer(f"🏦 Администратор начислил <b>{amount} ₣</b> пользователю {target_name}.", parse_mode="HTML")
-        schedule_delete(sent)
+        sent = await message.answer(LEXICON["eco_success_add"].format(amount=amount, target=target_name), parse_mode="HTML")
+        schedule_delete(sent, DELAYS["short"])
     except Exception as e:
-        sent = await message.answer(f"❌ {e}")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["error_generic"].format(error=e))
+        schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["штраф", "removemoney"])), IsModerator())
 async def cmd_remove_money(message: Message, eco_service: EconomyService, user_repo: UserRepository):
@@ -84,14 +86,14 @@ async def cmd_remove_money(message: Message, eco_service: EconomyService, user_r
     target_id, target_name = await resolve_target(message, user_repo)
 
     if not amount or not target_id:
-        sent = await message.answer("❌ Формат: <code>/штраф [сумма] [@user или реплай]</code>", parse_mode="HTML")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["eco_err_format_remove"], parse_mode="HTML")
+        schedule_delete(sent, DELAYS["default"])
         return
 
     try:
         await eco_service.add_money(target_id, -amount)
-        sent = await message.answer(f"⚖️ Администратор выписал штраф <b>{amount} ₣</b> пользователю {target_name}.", parse_mode="HTML")
-        schedule_delete(sent)
+        sent = await message.answer(LEXICON["eco_success_remove"].format(amount=amount, target=target_name), parse_mode="HTML")
+        schedule_delete(sent, DELAYS["short"])
     except Exception as e:
-        sent = await message.answer(f"❌ {e}")
-        schedule_delete(sent, 60)
+        sent = await message.answer(LEXICON["error_generic"].format(error=e))
+        schedule_delete(sent, DELAYS["default"])
