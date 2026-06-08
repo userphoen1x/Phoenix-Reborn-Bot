@@ -1,5 +1,8 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from core.garbage_collector import schedule_delete
 from core.lexicon import LEXICON
@@ -9,7 +12,8 @@ router = Router()
 
 
 @router.message(F.new_chat_members)
-async def on_user_join_message(message: Message, bot: Bot, user_repo: UserRepository):
+@inject
+async def on_user_join_message(message: Message, bot: Bot, user_repo: FromDishka[UserRepository]):
     for new_user in message.new_chat_members:
         if new_user.id == bot.id: continue
 

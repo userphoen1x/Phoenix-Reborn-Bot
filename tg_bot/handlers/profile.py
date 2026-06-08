@@ -2,6 +2,9 @@ import re
 import string
 from aiogram import Router, F
 from aiogram.types import Message, LinkPreviewOptions
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from database.repositories.economy_repo import EconomyRepository
 from database.repositories.chat_repo import ChatRepository
@@ -26,8 +29,9 @@ def is_cmd(text: str, cmds: list) -> bool:
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["профиль", "мой профиль", "/profile"])))
-async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: EconomyRepository,
-                      chat_repo: ChatRepository, brawl_client: BrawlAPIClient):
+@inject
+async def cmd_profile(message: Message, user_repo: FromDishka[UserRepository], eco_repo: FromDishka[EconomyRepository],
+                      chat_repo: FromDishka[ChatRepository], brawl_client: FromDishka[BrawlAPIClient]):
     parts = message.text.split()
     target_id = message.from_user.id
     target_username = next((word for word in parts[1:] if word.startswith("@")), None)
@@ -103,8 +107,9 @@ async def cmd_profile(message: Message, user_repo: UserRepository, eco_repo: Eco
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["клуб", "ранкед", "лига", "кубки"])))
-async def cmd_mini_stats(message: Message, user_repo: UserRepository, eco_repo: EconomyRepository,
-                         brawl_client: BrawlAPIClient):
+@inject
+async def cmd_mini_stats(message: Message, user_repo: FromDishka[UserRepository],
+                         eco_repo: FromDishka[EconomyRepository], brawl_client: FromDishka[BrawlAPIClient]):
     parts = message.text.split()
     cmd = parts[0].lower().strip(string.punctuation)
 

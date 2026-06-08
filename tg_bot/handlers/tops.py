@@ -1,6 +1,9 @@
 import asyncio
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, LinkPreviewOptions
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.economy_repo import EconomyRepository
@@ -37,7 +40,8 @@ async def get_roles_bulk(uids: list, user_repo: UserRepository):
     return await asyncio.gather(*(safe_get(uid) for uid in uids))
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["топ", "top", "топ10", "top10", "топ 10", "top 10"])))
-async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):
+@inject
+async def cmd_top_trigger(message: Message, user_repo: FromDishka[UserRepository], chat_repo: FromDishka[ChatRepository], eco_repo: FromDishka[EconomyRepository], brawl_client: FromDishka[BrawlAPIClient]):
     text = message.text.lower().strip()
     for prefix in ["топ 10", "top 10", "топ10", "top10", "топ", "top"]:
         if text.startswith(prefix):
@@ -200,7 +204,8 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     if sent_msg: schedule_delete(sent_msg, DELAYS["default"])
 
 @router.callback_query(TopCb.filter())
-async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):
+@inject
+async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, user_repo: FromDishka[UserRepository], chat_repo: FromDishka[ChatRepository], eco_repo: FromDishka[EconomyRepository], brawl_client: FromDishka[BrawlAPIClient]):
     if callback.from_user.id != callback_data.uid: return await callback.answer(LEXICON["top_not_yours"], show_alert=True)
     act, uid, c = callback_data.act, callback_data.uid, callback_data.c
     if act == "main":

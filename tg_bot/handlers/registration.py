@@ -3,6 +3,9 @@ from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
@@ -28,8 +31,9 @@ async def get_user_chat_status(bot: Bot, user_id: int):
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: UserRepository,
-                    brawl_client: BrawlAPIClient):
+@inject
+async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: FromDishka[UserRepository],
+                    brawl_client: FromDishka[BrawlAPIClient]):
     user_id = message.from_user.id
     wait_msg = await message.answer(LEXICON["reg_wait"])
 
@@ -75,8 +79,9 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Us
 
 
 @router.message(RegState.tag)
-async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: UserRepository,
-                      brawl_client: BrawlAPIClient):
+@inject
+async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: FromDishka[UserRepository],
+                      brawl_client: FromDishka[BrawlAPIClient]):
     tag = message.text.strip().upper()
     if not tag.startswith("#"):
         tag = "#" + tag

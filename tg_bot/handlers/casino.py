@@ -3,6 +3,9 @@ import random
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from services.casino_service import CasinoService
 from core.exceptions import UserNotRegisteredError, NotEnoughMoneyError
 from core.constants import SAPER_DIFFS, DELAYS
@@ -61,7 +64,8 @@ def calc_hand(hand):
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["казик", "казино", "игра", "игры", "casino", "games"]))
-async def cmd_casino_main(message: Message, casino_service: CasinoService):
+@inject
+async def cmd_casino_main(message: Message, casino_service: FromDishka[CasinoService]):
     user_id = message.from_user.id
     try:
         balance = await casino_service.get_balance(user_id)
@@ -77,7 +81,8 @@ async def cmd_casino_main(message: Message, casino_service: CasinoService):
 
 @router.message(
     lambda msg: is_cmd(msg.text, ["слоты", "слот", "кости", "кубик", "дартс", "боулинг", "футбол", "баскет"]))
-async def cmd_direct_games(message: Message, casino_service: CasinoService):
+@inject
+async def cmd_direct_games(message: Message, casino_service: FromDishka[CasinoService]):
     parts = message.text.lower().split()
     cmd = parts[0]
     game = "slot" if any(x in cmd for x in ["слот"]) else "dice" if any(
@@ -149,13 +154,14 @@ async def cmd_direct_games(message: Message, casino_service: CasinoService):
 
 
 @router.callback_query(CasinoCb.filter())
-async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, casino_service: CasinoService):
+@inject
+async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb,
+                            casino_service: FromDishka[CasinoService]):
     user_id = callback.from_user.id
     act = callback_data.act
     game = callback_data.game
     val = callback_data.val
-    if act == "close":
-        return await callback.message.delete()
+    if act == "close": return await callback.message.delete()
     if act == "menu":
         await cleanup_old_game(callback.bot, callback.message.chat.id, user_id)
         try:
@@ -171,9 +177,9 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
         except UserNotRegisteredError:
             pass
         return
-    if act == "saper_route":
-        return await callback.message.edit_text(LEXICON["saper_bet_prompt"], reply_markup=kb_saper_setup_bet(),
-                                                parse_mode="HTML")
+    if act == "saper_route": return await callback.message.edit_text(LEXICON["saper_bet_prompt"],
+                                                                     reply_markup=kb_saper_setup_bet(),
+                                                                     parse_mode="HTML")
     if act == "bet":
         game_names = {"bj": "🃏 Блэкджек", "slot": "🎰 Слоты", "dice": "🎲 Кости", "darts": "🎯 Дартс", "bowl": "🎳 Боулинг",
                       "fball": "⚽️ Футбол", "bball": "🏀 Баскетбол"}
@@ -295,7 +301,8 @@ async def render_blackjack(message: Message, user_id: int, casino_service: Casin
 
 
 @router.callback_query(BjCb.filter())
-async def cb_bj_handler(callback: CallbackQuery, callback_data: BjCb, casino_service: CasinoService):
+@inject
+async def cb_bj_handler(callback: CallbackQuery, callback_data: BjCb, casino_service: FromDishka[CasinoService]):
     user_id = callback.from_user.id
     game_data = await casino_service.get_active_game(user_id)
     if not game_data or game_data["game_type"] != "bj": return await callback.answer(LEXICON["casino_game_over"],
@@ -371,7 +378,8 @@ async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str, c
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["блекджек", "блэкджек", "21", "очко"]))
-async def cmd_bj_direct(message: Message, casino_service: CasinoService):
+@inject
+async def cmd_bj_direct(message: Message, casino_service: FromDishka[CasinoService]):
     user_id = message.from_user.id
     parts = message.text.lower().split()
     try:
@@ -401,7 +409,8 @@ async def cmd_bj_direct(message: Message, casino_service: CasinoService):
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["сапер", "saper", "сапёр"]))
-async def cmd_saper(message: Message, casino_service: CasinoService):
+@inject
+async def cmd_saper(message: Message, casino_service: FromDishka[CasinoService]):
     user_id = message.from_user.id
     parts = message.text.lower().split()[1:]
     bet_str = None
@@ -476,7 +485,9 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
 
 
 @router.callback_query(SaperSetupCb.filter())
-async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb, casino_service: CasinoService):
+@inject
+async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb,
+                         casino_service: FromDishka[CasinoService]):
     user_id = callback.from_user.id
     act = callback_data.act
     val = callback_data.val
@@ -491,7 +502,8 @@ async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb, c
 
 
 @router.callback_query(SaperCb.filter())
-async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_service: CasinoService):
+@inject
+async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_service: FromDishka[CasinoService]):
     user_id = callback.from_user.id
     game_data = await casino_service.get_active_game(user_id)
     if callback_data.act == "ignore": return await callback.answer()

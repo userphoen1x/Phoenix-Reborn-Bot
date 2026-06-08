@@ -3,6 +3,9 @@ import string
 from datetime import datetime, timedelta
 from aiogram import Router, F, Bot
 from aiogram.types import Message, ChatPermissions, LinkPreviewOptions
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from services.moderation_service import ModerationService
 from utils.admin_logger import send_log
@@ -35,7 +38,8 @@ def is_cmd(text: str, cmds: list) -> bool:
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["понизить", "демоут"])), IsFounder())
-async def cmd_demote(message: Message, user_repo: UserRepository):
+@inject
+async def cmd_demote(message: Message, user_repo: FromDishka[UserRepository]):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
         sent = await message.answer(LEXICON["mod_err_no_target"])
@@ -48,7 +52,8 @@ async def cmd_demote(message: Message, user_repo: UserRepository):
 
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["вернуть звание", "восстановить", "вернуть"])), IsFounder())
-async def cmd_restore_rank(message: Message, user_repo: UserRepository):
+@inject
+async def cmd_restore_rank(message: Message, user_repo: FromDishka[UserRepository]):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
         sent = await message.answer(LEXICON["mod_err_no_target"])
@@ -63,7 +68,8 @@ async def cmd_restore_rank(message: Message, user_repo: UserRepository):
 @router.message(F.text.func(
     lambda text: is_cmd(text, ["мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "разбан", "unban"])),
                 IsModerator())
-async def cmd_moderation(message: Message, bot: Bot, user_repo: UserRepository):
+@inject
+async def cmd_moderation(message: Message, bot: Bot, user_repo: FromDishka[UserRepository]):
     if str(message.chat.id) == settings.ADMIN_CHAT_ID: return
 
     parts = message.text.split()

@@ -8,6 +8,9 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from services.ai_service import AiService
 from database.repositories.chat_repo import ChatRepository
 from database.repositories.user_repo import UserRepository
@@ -15,20 +18,15 @@ from database.repositories.economy_repo import EconomyRepository
 from core.config import settings
 
 router = Router()
-router.message.filter(F.chat.type.in_({"group", "supergroup"}),
-                      lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
+router.message.filter(F.chat.type.in_({"group", "supergroup"}), lambda msg: str(msg.chat.id) != os.getenv("ADMIN_CHAT_ID"))
 
 VOICE_REPLY_CHANCE = 0.01
-
 
 class AiModeCb(CallbackData, prefix="aimode"):
     mode: str
     uid: int
 
-
-SCRIPTED_PREFIXES = ("❌", "✅", "⚠️", "🎭", "📊", "🏆", "🎰", "🎲", "🎯", "🎳", "⚽", "🏀", "💣", "🃏", "💰", "💳", "⏳", "⬇️", "🔇",
-                     "🔊", "👢", "🔨", "💬", "🔥", "📈", "⚔️", "🌵", "👥", "👤", "🎖")
-
+SCRIPTED_PREFIXES = ("❌", "✅", "⚠️", "🎭", "📊", "🏆", "🎰", "🎲", "🎯", "🎳", "⚽", "🏀", "💣", "🃏", "💰", "💳", "⏳", "⬇️", "🔇", "🔊", "👢", "🔨", "💬", "🔥", "📈", "⚔️", "🌵", "👥", "👤", "🎖")
 
 async def _send_ai_reply(message: Message, bot: Bot, ai_response: str, ai_service: AiService):
     if random.random() < VOICE_REPLY_CHANCE:
@@ -38,10 +36,8 @@ async def _send_ai_reply(message: Message, bot: Bot, ai_response: str, ai_servic
                 await bot.send_chat_action(chat_id=message.chat.id, action="record_voice")
                 await message.reply_voice(BufferedInputFile(voice_bytes, filename="voice.wav"))
                 return
-        except Exception:
-            pass
+        except Exception: pass
     await message.reply(ai_response, parse_mode=None)
-
 
 async def _process_media_message(message: Message, bot: Bot, ai_service: AiService) -> tuple[str | None, str, str]:
     if message.voice:
@@ -76,30 +72,24 @@ async def _process_media_message(message: Message, bot: Bot, ai_service: AiServi
         return img_b64, "photo", caption
     return None, "", ""
 
-
 @router.message(Command("характер"))
-async def cmd_change_ai_mode(message: Message, user_repo: UserRepository):
+@inject
+async def cmd_change_ai_mode(message: Message, user_repo: FromDishka[UserRepository]):
     user_id = message.from_user.id
     role = await user_repo.get_user_role(user_id)
-
     is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
     if not is_tech and role not in ["Президент", "Вице-президент"]: return
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🦅 Классический Феникс",
-                              callback_data=AiModeCb(mode="default", uid=user_id).pack())],
+        [InlineKeyboardButton(text="🦅 Классический Феникс", callback_data=AiModeCb(mode="default", uid=user_id).pack())],
         [InlineKeyboardButton(text="📜 Мудрый Философ", callback_data=AiModeCb(mode="philosopher", uid=user_id).pack())]
     ])
-    await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb,
-                         parse_mode="HTML")
-
+    await message.answer("🎭 <b>Настройка искусственного интеллекта</b>\n\nВыбери характер:", reply_markup=kb, parse_mode="HTML")
 
 @router.callback_query(AiModeCb.filter())
-async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_repo: UserRepository,
-                         chat_repo: ChatRepository):
-    if callback.from_user.id != callback_data.uid: return await callback.answer("❌ Это не твое меню настроек!",
-                                                                                show_alert=True)
-
+@inject
+async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_repo: FromDishka[UserRepository], chat_repo: FromDishka[ChatRepository]):
+    if callback.from_user.id != callback_data.uid: return await callback.answer("❌ Это не твое меню настроек!", show_alert=True)
     user_id = callback.from_user.id
     role = await user_repo.get_user_role(user_id)
     is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
@@ -111,26 +101,23 @@ async def cb_set_ai_mode(callback: CallbackQuery, callback_data: AiModeCb, user_
     await chat_repo.set_chat_mode(callback.message.chat.id, mode)
     await chat_repo.clear_chat_logs(callback.message.chat.id)
     mode_names = {"default": "🦅 Классический Феникс", "philosopher": "📜 Мудрый Философ"}
-    await callback.message.edit_text(
-        f"✅ Character Mode успешно изменен на: <b>{mode_names.get(mode, 'Классический')}</b>", parse_mode="HTML")
+    await callback.message.edit_text(f"✅ Character Mode успешно изменен на: <b>{mode_names.get(mode, 'Классический')}</b>", parse_mode="HTML")
     await callback.answer()
 
-
 @router.message(Command("clear_ai"))
-async def cmd_clear_ai_memory(message: Message, user_repo: UserRepository, chat_repo: ChatRepository):
+@inject
+async def cmd_clear_ai_memory(message: Message, user_repo: FromDishka[UserRepository], chat_repo: FromDishka[ChatRepository]):
     user_id = message.from_user.id
     role = await user_repo.get_user_role(user_id)
     is_tech = str(user_id) == settings.FOUNDER_ID or str(user_id) in settings.DEVELOPER_IDS
     if not is_tech and role not in ["Президент", "Вице-президент"]: return
 
     await chat_repo.clear_chat_logs(message.chat.id)
-    await message.answer("🧹 <b>Память ИИ успешно очищена!</b>\nФеникс забыл контекст последних сообщений в этом чате.",
-                         parse_mode="HTML")
-
+    await message.answer("🧹 <b>Память ИИ успешно очищена!</b>\nФеникс забыл контекст последних сообщений в этом чате.", parse_mode="HTML")
 
 @router.message()
-async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepository, eco_repo: EconomyRepository,
-                                 ai_service: AiService):
+@inject
+async def universal_chat_handler(message: Message, bot: Bot, chat_repo: FromDishka[ChatRepository], eco_repo: FromDishka[EconomyRepository], ai_service: FromDishka[AiService]):
     if message.from_user.is_bot: return
     user_id = message.from_user.id
     user_name = f"@{message.from_user.username}" if message.from_user.username else message.from_user.full_name
@@ -165,8 +152,7 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
 
     eco = await eco_repo.get_eco_data(user_id)
     if not eco or not eco.get("bs_tag"):
-        if is_mentioned or is_reply_to_bot: await message.reply(
-            "❌ Я общаюсь только с верифицированными участниками клуба. Отправь мне свой тег в ЛС!")
+        if is_mentioned or is_reply_to_bot: await message.reply("❌ Я общаюсь только с верифицированными участниками клуба. Отправь мне свой тег в ЛС!")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -180,11 +166,8 @@ async def universal_chat_handler(message: Message, bot: Bot, chat_repo: ChatRepo
             return
         media_payload = (data, m_type, caption)
 
-    ai_response = await ai_service.generate_response(message.chat.id, user_name, message_text, bot_info.id, history,
-                                                     media_payload)
+    ai_response = await ai_service.generate_response(message.chat.id, user_name, message_text, bot_info.id, history, media_payload)
     await _send_ai_reply(message, bot, ai_response, ai_service)
 
-    try:
-        await chat_repo.log_chat_message(message.chat.id, bot_info.id, bot_info.first_name, ai_response)
-    except Exception:
-        pass
+    try: await chat_repo.log_chat_message(message.chat.id, bot_info.id, bot_info.first_name, ai_response)
+    except Exception: pass

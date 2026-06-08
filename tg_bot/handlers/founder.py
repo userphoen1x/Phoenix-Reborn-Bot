@@ -3,10 +3,13 @@ from aiogram import Router, Bot, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, \
     LinkPreviewOptions
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
-from core.constants import ROLE_SYMBOLS, DELAYS
+from core.constants import DELAYS
 from core.lexicon import LEXICON
 from core.garbage_collector import schedule_delete
 
@@ -18,7 +21,8 @@ def is_tech_admin(user_id: int) -> bool:
 
 
 @router.message(Command("unlink"))
-async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
+@inject
+async def cmd_unlink_tag(message: Message, user_repo: FromDishka[UserRepository]):
     if not is_tech_admin(message.from_user.id): return
     parts = message.text.split()
     target_name = None
@@ -38,7 +42,8 @@ async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
 
 
 @router.message(Command("set_key"))
-async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
+@inject
+async def cmd_set_key(message: Message, brawl_client: FromDishka[BrawlAPIClient]):
     if not is_tech_admin(message.from_user.id): return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
@@ -58,7 +63,8 @@ async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
 
 
 @router.message(Command("ping"))
-async def admin_ping(message: Message, brawl_client: BrawlAPIClient):
+@inject
+async def admin_ping(message: Message, brawl_client: FromDishka[BrawlAPIClient]):
     if not is_tech_admin(message.from_user.id): return
     wait_msg = await message.answer(LEXICON["fnd_ping_check"])
     ok, text = await brawl_client.check_api_connection()
@@ -84,7 +90,8 @@ async def cmd_force_roles(message: Message, bot: Bot):
 
 
 @router.callback_query(F.data.startswith("role_approve:"))
-async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserRepository):
+@inject
+async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: FromDishka[UserRepository]):
     if str(callback.from_user.id) != settings.FOUNDER_ID:
         return await callback.answer(LEXICON["fnd_no_rights"], show_alert=True)
 
@@ -105,7 +112,8 @@ async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserReposit
 
 
 @router.callback_query(F.data.startswith("role_reject:"))
-async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
+@inject
+async def reject_role(callback: CallbackQuery, user_repo: FromDishka[UserRepository]):
     if str(callback.from_user.id) != settings.FOUNDER_ID: return await callback.answer(LEXICON["fnd_no_rights"],
                                                                                        show_alert=True)
     _, uid_str = callback.data.split(":")
@@ -115,7 +123,9 @@ async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
 
 
 @router.message(F.text.lower().startswith(("запросы", "/запросы")))
-async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserRepository, brawl_client: BrawlAPIClient):
+@inject
+async def cmd_resend_requests(message: Message, bot: Bot, user_repo: FromDishka[UserRepository],
+                              brawl_client: FromDishka[BrawlAPIClient]):
     if not is_tech_admin(message.from_user.id): return
 
     db_users = await user_repo.get_all_users_for_roles()
@@ -179,7 +189,8 @@ async def admin_force_scan(message: Message):
 
 
 @router.message(Command("all_reg_list"), F.chat.type == "private")
-async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
+@inject
+async def cmd_all_reg_list(message: Message, user_repo: FromDishka[UserRepository]):
     a_role = await user_repo.get_user_role(message.from_user.id)
     if not is_tech_admin(message.from_user.id) and a_role not in ["Президент", "Вице-президент"]:
         return
