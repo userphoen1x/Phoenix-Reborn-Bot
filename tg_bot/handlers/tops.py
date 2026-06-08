@@ -6,7 +6,8 @@ from database.repositories.chat_repo import ChatRepository
 from database.repositories.economy_repo import EconomyRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
-from core.constants import ROLE_SYMBOLS, RANK_NAMES
+from core.constants import ROLE_SYMBOLS, RANK_NAMES, DELAYS
+from core.lexicon import LEXICON
 from tg_bot.keyboards.inline import TopCb, kb_choose_club, kb_main_top, kb_timeframe, kb_wins, kb_wins_sd
 from core.garbage_collector import schedule_delete
 
@@ -49,8 +50,8 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     except: pass
     if not args_str:
         kb = await kb_choose_club(uid, brawl_client)
-        sent_msg = await message.answer("📊 <b>Выберите клуб:</b>", reply_markup=kb)
-        schedule_delete(sent_msg)
+        sent_msg = await message.answer(LEXICON["top_choose_club"], reply_markup=kb)
+        schedule_delete(sent_msg, DELAYS["default"])
         return
 
     args_lower = args_str.lower()
@@ -62,12 +63,12 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     elif any(word in args_lower for word in ["пушеров", "пушеры", "пуш", "рост кубков", "рост", "ап", "апп"]): is_push_direct = True
 
     if is_push_direct:
-        sent_msg = await message.answer("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        sent_msg = await message.answer(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
             live_members, err = await brawl_client.get_all_club_members(c)
             if not live_members or not isinstance(live_members, list):
-                await sent_msg.edit_text("❌ Ошибка загрузки данных из API.", link_preview_options=LinkPreviewOptions(is_disabled=True))
-                schedule_delete(sent_msg, 60)
+                await sent_msg.edit_text(LEXICON["top_api_error"], link_preview_options=LinkPreviewOptions(is_disabled=True))
+                schedule_delete(sent_msg, DELAYS["default"])
                 return
             tags_filter = [m.get("tag") for m in live_members if isinstance(m, dict) and m.get("tag")]
             baseline_map = await chat_repo.get_baseline_trophies(push_days, tags_filter)
@@ -89,7 +90,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                 tg_data = tg_map.get(tag_str)
                 uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
             syms_list = await get_roles_bulk(uids, user_repo)
-            txt = f"🏆 <b>Топ пушеров ({push_title})</b>\n\n"
+            txt = LEXICON["top_push_title"].format(push_title=push_title)
             for i, (n, v, tag_str) in enumerate(results):
                 tg_data = tg_map.get(tag_str)
                 t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
@@ -98,13 +99,13 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-            if not results: txt += "📭 Пока нет данных для расчета (или никто не апнул кубки)."
+            if not results: txt += LEXICON["top_empty"]
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ К меню топов", callback_data=TopCb(act="main", uid=uid, c="ALL").pack())]])
             await sent_msg.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
-            schedule_delete(sent_msg)
+            schedule_delete(sent_msg, DELAYS["default"])
         except Exception as e:
-            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
-            schedule_delete(sent_msg)
+            await sent_msg.edit_text(LEXICON["top_calc_error"].format(error=e), link_preview_options=LinkPreviewOptions(is_disabled=True))
+            schedule_delete(sent_msg, DELAYS["default"])
         return
 
     msg_triggers = {"смс", "соо", "сообщение", "сообщения", "sms", "msg", "messages", "чат", "флуд", "писари"}
@@ -116,29 +117,29 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
     sent_msg = None
     if args_str in msg_triggers:
         if c != "ALL": return
-        sent_msg = await message.answer("💬 <b>Сообщения (Все клубы):</b>", reply_markup=kb_timeframe("msg", "main", uid, c))
-    elif args_str in wins_triggers: sent_msg = await message.answer("⚔️ <b>Победы (Все клубы):</b>", reply_markup=kb_wins(uid, c))
+        sent_msg = await message.answer(LEXICON["top_msg_title"], reply_markup=kb_timeframe("msg", "main", uid, c))
+    elif args_str in wins_triggers: sent_msg = await message.answer(LEXICON["top_wins_title"], reply_markup=kb_wins(uid, c))
     elif args_str in eco_triggers or "top phoenix" in text:
         if c != "ALL": return
         data = await eco_repo.get_top_balance(10)
         uids = [t_uid for _, _, _, t_uid in data]
         syms_list = await get_roles_bulk(uids, user_repo)
-        txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
+        txt = LEXICON["top_eco_title"]
         for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
             display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
             sym = syms_list[i]
             name_link = make_link(display_name, tg_name, t_uid)
             place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
             txt += f"{place} {sym} {name_link}: {bal} ₣\n"
-        if not data: txt += "📭 Пока никого нет."
+        if not data: txt += LEXICON["top_eco_empty"]
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
         sent_msg = await message.answer(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in cups_triggers:
-        sent_msg = await message.answer("⏳ Собираю актуальные данные...")
+        sent_msg = await message.answer(LEXICON["top_loading"])
         try:
             members, err = await brawl_client.get_all_club_members(c)
             if not members or not isinstance(members, list):
-                await sent_msg.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await sent_msg.edit_text(LEXICON["top_api_err_details"].format(error=err) if err else LEXICON["top_api_error"], link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
                 tg_map = (await user_repo.get_tag_to_tg_map()) or {}
@@ -148,7 +149,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
                     uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
                 syms_list = await get_roles_bulk(uids, user_repo)
-                res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
+                res = LEXICON["top_cups_title"]
                 for i, m in enumerate(top_10):
                     if not isinstance(m, dict): continue
                     tg_data = tg_map.get(m.get("tag"))
@@ -160,14 +161,14 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
                 await sent_msg.edit_text(res, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text(LEXICON["top_calc_error"].format(error=e), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif args_str in ranks_triggers:
-        sent_msg = await message.answer("⏳ Собираю актуальные данные...")
+        sent_msg = await message.answer(LEXICON["top_loading"])
         try:
             members, err = await brawl_client.get_live_club_detailed_stats(c)
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
             if not members or not isinstance(members, list):
-                await sent_msg.edit_text("❌ Ошибка загрузки.", link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await sent_msg.edit_text(LEXICON["top_api_error"], link_preview_options=LinkPreviewOptions(is_disabled=True))
             else:
                 members.sort(key=lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0), reverse=True)
                 top_10 = members[:10]
@@ -176,7 +177,7 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                     tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
                     uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
                 syms_list = await get_roles_bulk(uids, user_repo)
-                txt = f"🎖 <b>Ранкед</b>\n\n"
+                txt = LEXICON["top_ranks_title"]
                 for i, m in enumerate(top_10):
                     if not isinstance(m, dict): continue
                     tg_data = tg_map.get(m.get("tag"))
@@ -192,51 +193,51 @@ async def cmd_top_trigger(message: Message, user_repo: UserRepository, chat_repo
                 if err: txt += f"\nОшибки: {err}"
                 await sent_msg.edit_text(txt, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await sent_msg.edit_text(f"❌ Ошибка вычислений: {str(e)}", link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await sent_msg.edit_text(LEXICON["top_calc_error"].format(error=e), link_preview_options=LinkPreviewOptions(is_disabled=True))
     else:
         kb = await kb_choose_club(uid, brawl_client)
-        sent_msg = await message.answer("📊 <b>Выберите клуб:</b>", reply_markup=kb)
-    if sent_msg: schedule_delete(sent_msg)
+        sent_msg = await message.answer(LEXICON["top_choose_club"], reply_markup=kb)
+    if sent_msg: schedule_delete(sent_msg, DELAYS["default"])
 
 @router.callback_query(TopCb.filter())
 async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, user_repo: UserRepository, chat_repo: ChatRepository, eco_repo: EconomyRepository, brawl_client: BrawlAPIClient):
-    if callback.from_user.id != callback_data.uid: return await callback.answer("❌ Не твое меню", show_alert=True)
+    if callback.from_user.id != callback_data.uid: return await callback.answer(LEXICON["top_not_yours"], show_alert=True)
     act, uid, c = callback_data.act, callback_data.uid, callback_data.c
     if act == "main":
         kb = await kb_choose_club(uid, brawl_client)
-        await callback.message.edit_text("📊 <b>Выберите клуб:</b>", reply_markup=kb)
-    elif act == "cat": await callback.message.edit_text("📂 <b>Категория:</b>", reply_markup=kb_main_top(uid, c))
+        await callback.message.edit_text(LEXICON["top_choose_club"], reply_markup=kb)
+    elif act == "cat": await callback.message.edit_text(LEXICON["top_category"], reply_markup=kb_main_top(uid, c))
     elif act == "msg":
         if c != "ALL": return
-        await callback.message.edit_text("💬 <b>Сообщения:</b>", reply_markup=kb_timeframe("msg", "cat", uid, c))
-    elif act == "cups_gain": await callback.message.edit_text("📈 <b>Рост кубков:</b>", reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
-    elif act == "wins": await callback.message.edit_text("⚔️ <b>Победы:</b>", reply_markup=kb_wins(uid, c))
-    elif act == "wins_sd": await callback.message.edit_text("🌵 <b>Столкновение (ШД):</b>", reply_markup=kb_wins_sd(uid, c))
+        await callback.message.edit_text(LEXICON["top_msg_cat"], reply_markup=kb_timeframe("msg", "cat", uid, c))
+    elif act == "cups_gain": await callback.message.edit_text(LEXICON["top_cups_gain_cat"], reply_markup=kb_timeframe("cups_gain", "cat", uid, c))
+    elif act == "wins": await callback.message.edit_text(LEXICON["top_wins_cat"], reply_markup=kb_wins(uid, c))
+    elif act == "wins_sd": await callback.message.edit_text(LEXICON["top_wins_sd_cat"], reply_markup=kb_wins_sd(uid, c))
     elif act == "eco":
         if c != "ALL": return
-        await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
             data = await eco_repo.get_top_balance(10)
             uids = [t_uid for _, _, _, t_uid in data]
             syms_list = await get_roles_bulk(uids, user_repo)
-            txt = "🔥 <b>Топ богачей (₣)</b>\n\n"
+            txt = LEXICON["top_eco_title"]
             for i, (tg_name, player_name, bal, t_uid) in enumerate(data):
                 display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
                 sym = syms_list[i]
                 name_link = make_link(display_name, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: {bal} ₣\n"
-            if not data: txt += "📭 Пока никого нет."
+            if not data: txt += LEXICON["top_eco_empty"]
             back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]])
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await callback.message.edit_text(LEXICON["top_calc_error"].format(error=e), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c="ALL").pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act == "cups_cur":
-        await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
             members, err = await brawl_client.get_all_club_members(c)
             if not members or not isinstance(members, list):
-                await callback.message.edit_text(f"❌ Ошибка загрузки.\nДетали: {err}" if err else "❌ Ошибка загрузки.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await callback.message.edit_text(LEXICON["top_api_err_details"].format(error=err) if err else LEXICON["top_api_error"], reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
                 return
             members.sort(key=lambda x: int(x.get("trophies", 0) or 0) if isinstance(x, dict) else 0, reverse=True)
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
@@ -246,7 +247,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
                 uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
             syms_list = await get_roles_bulk(uids, user_repo)
-            res = f"🏆 <b>ТОП КУБКОВ</b>\n\n"
+            res = LEXICON["top_cups_title"]
             for i, m in enumerate(top_10):
                 if not isinstance(m, dict): continue
                 tg_data = tg_map.get(m.get("tag"))
@@ -258,15 +259,15 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 res += f"{place} {sym} {name_link}: {m.get('trophies', 0)}\n"
             await callback.message.edit_text(res, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await callback.message.edit_text(LEXICON["top_calc_error"].format(error=e), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]]), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act in ["wins_3v3", "wins_sd_solo", "wins_sd_duo", "ranks_curr"]:
-        await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         back_act = "wins_sd" if act.startswith("wins_sd_") else "wins" if act.startswith("wins_") else "cat"
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act=back_act, uid=uid, c=c).pack())]])
         try:
             members, err = await brawl_client.get_live_club_detailed_stats(c)
             tg_map = (await user_repo.get_tag_to_tg_map()) or {}
-            if not members or not isinstance(members, list): return await callback.message.edit_text("❌ Ошибка загрузки", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            if not members or not isinstance(members, list): return await callback.message.edit_text(LEXICON["top_api_error"], reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
             if act == "ranks_curr": sort_key = lambda x: (int(x.get("ranked_curr_rank", 0) or 0), int(x.get("ranked_curr_elo", 0) or 0)) if isinstance(x, dict) else (0, 0); title = "🎖 Ранкед"
             elif act == "wins_3v3": sort_key = lambda x: int(x.get("wins_3v3", 0) or 0) if isinstance(x, dict) else 0; title = "⚔️ 3 на 3"
             elif act == "wins_sd_solo": sort_key = lambda x: int(x.get("solo_wins", 0) or 0) if isinstance(x, dict) else 0; title = "👤 Соло"
@@ -278,7 +279,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 tg_data = tg_map.get(m.get("tag")) if isinstance(m, dict) else None
                 uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
             syms_list = await get_roles_bulk(uids, user_repo)
-            txt = f"<b>{title}</b>\n\n"
+            txt = LEXICON["top_wins_res"].format(title=title)
             for i, m in enumerate(top_10):
                 if not isinstance(m, dict): continue
                 tg_data = tg_map.get(m.get("tag"))
@@ -295,15 +296,15 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
             if err: txt += f"\nОшибки: {err}"
             await callback.message.edit_text(txt, reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await callback.message.edit_text(LEXICON["top_calc_error"].format(error=e), reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("msg_"):
-        await callback.message.edit_text("⏳ Собираю данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         try:
             d = {"msg_day": 1, "msg_week": 7, "msg_month": 30, "msg_all": None}.get(act)
             data = await chat_repo.get_top_messages(d)
             uids = [t_uid for _, _, _, t_uid in data]
             syms_list = await get_roles_bulk(uids, user_repo)
-            txt = "💬 <b>Топ сообщений чата</b>\n\n"
+            txt = LEXICON["top_msg_res"]
             for i, (tg_name, player_name, v, t_uid) in enumerate(data):
                 display_name = player_name if player_name else (tg_name if tg_name else "Игрок")
                 sym = syms_list[i]
@@ -312,15 +313,15 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 txt += f"{place} {sym} {name_link}: {v}\n"
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await callback.message.edit_text(LEXICON["top_calc_error"].format(error=e), reply_markup=kb_timeframe("msg", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
     elif act.startswith("cups_gain_"):
         d = {"cups_gain_day": 1, "cups_gain_week": 7, "cups_gain_month": 30, "cups_gain_all": 3650}.get(act, 1)
-        await callback.message.edit_text("⏳ Собираю актуальные данные...", link_preview_options=LinkPreviewOptions(is_disabled=True))
+        await callback.message.edit_text(LEXICON["top_loading"], link_preview_options=LinkPreviewOptions(is_disabled=True))
         back = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=TopCb(act="cat", uid=uid, c=c).pack())]])
         try:
             live_members, err = await brawl_client.get_all_club_members(c)
             if not live_members or not isinstance(live_members, list):
-                await callback.message.edit_text("❌ Ошибка API", reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
+                await callback.message.edit_text(LEXICON["top_api_error"], reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
                 return
             tags_filter = [m.get("tag") for m in live_members if isinstance(m, dict) and m.get("tag")]
             baseline_map = await chat_repo.get_baseline_trophies(d, tags_filter)
@@ -342,7 +343,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 tg_data = tg_map.get(tag_str)
                 uids.append(tg_data.get("id") if isinstance(tg_data, dict) else None)
             syms_list = await get_roles_bulk(uids, user_repo)
-            txt = "📈 <b>Рост кубков</b>\n\n"
+            txt = LEXICON["top_gain_res"]
             for i, (n, v, tag_str) in enumerate(top_10):
                 tg_data = tg_map.get(tag_str)
                 t_uid = tg_data.get("id") if isinstance(tg_data, dict) else None
@@ -351,7 +352,7 @@ async def process_top_callbacks(callback: CallbackQuery, callback_data: TopCb, u
                 name_link = make_link(n, tg_name, t_uid)
                 place = {0: "🥇", 1: "🥈", 2: "🥉"}.get(i, f"<b>{i + 1}.</b>")
                 txt += f"{place} {sym} {name_link}: +{v} 🏆\n"
-            if not top_10: txt += "📭 Пока нет данных для расчета."
+            if not top_10: txt += LEXICON["top_empty"]
             await callback.message.edit_text(txt, reply_markup=kb_timeframe("cups_gain", "cat", uid, c), link_preview_options=LinkPreviewOptions(is_disabled=True))
         except Exception as e:
-            await callback.message.edit_text(f"❌ Ошибка вычислений: {str(e)}", reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))
+            await callback.message.edit_text(LEXICON["top_calc_error"].format(error=e), reply_markup=back, link_preview_options=LinkPreviewOptions(is_disabled=True))

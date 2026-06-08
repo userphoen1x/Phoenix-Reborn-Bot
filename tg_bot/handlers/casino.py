@@ -5,7 +5,8 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from services.casino_service import CasinoService
 from core.exceptions import UserNotRegisteredError, NotEnoughMoneyError
-from core.constants import SAPER_DIFFS
+from core.constants import SAPER_DIFFS, DELAYS
+from core.lexicon import LEXICON
 from tg_bot.keyboards.inline import CasinoCb, BjCb, SaperSetupCb, SaperCb, kb_casino_main, kb_casino_bet, \
     kb_saper_setup_bet, kb_saper_setup_diff, kb_saper_game
 from core.garbage_collector import schedule_delete
@@ -64,15 +65,14 @@ async def cmd_casino_main(message: Message, casino_service: CasinoService):
     user_id = message.from_user.id
     try:
         balance = await casino_service.get_balance(user_id)
-        sent_msg = await message.answer(
-            f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n💰 Твой баланс: <b>{balance}</b> ₣\n\nВыбери игру, чтобы испытать удачу:",
-            reply_markup=kb_casino_main(balance), parse_mode="HTML")
+        sent_msg = await message.answer(LEXICON["casino_welcome"].format(balance=balance),
+                                        reply_markup=kb_casino_main(balance), parse_mode="HTML")
         await cleanup_old_game(message.bot, message.chat.id, user_id)
         LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-        schedule_delete(sent_msg)
+        schedule_delete(sent_msg, DELAYS["default"])
     except UserNotRegisteredError as e:
         sent = await message.answer(str(e))
-        schedule_delete(sent, 60)
+        schedule_delete(sent, DELAYS["default"])
 
 
 @router.message(
@@ -90,14 +90,14 @@ async def cmd_direct_games(message: Message, casino_service: CasinoService):
         if not bet_str:
             game_names = {"slot": "🎰 Слоты", "dice": "🎲 Кости", "darts": "🎯 Дартс", "bowl": "🎳 Боулинг",
                           "fball": "⚽️ Футбол", "bball": "🏀 Баскетбол"}
-            sent_msg = await message.answer(f"{game_names[game]}\n\nВыберите размер ставки:",
+            sent_msg = await message.answer(LEXICON["casino_bet_prompt"].format(game_name=game_names[game]),
                                             reply_markup=kb_casino_bet(game), parse_mode="HTML")
             await cleanup_old_game(message.bot, message.chat.id, user_id)
             LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-            schedule_delete(sent_msg)
+            schedule_delete(sent_msg, DELAYS["default"])
             return
         bet = balance if bet_str in ["all", "все", "всё"] else int(bet_str)
-        if bet < 10: return await message.answer("❌ Минимальная ставка 10 ₣!")
+        if bet < 10: return await message.answer(LEXICON["casino_min_bet"])
         guess = None
         if game == "dice":
             for p in parts[1:]:
@@ -120,19 +120,21 @@ async def cmd_direct_games(message: Message, casino_service: CasinoService):
                                           callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_6").pack())],
                     [InlineKeyboardButton(text="❌ Отмена", callback_data=CasinoCb(act="menu", game="none").pack())]
                 ])
-                sent_msg = await message.answer(f"🎲 Ставка: <b>{bet} ₣</b>\n\nНа какое число ставишь?",
+                sent_msg = await message.answer(LEXICON["casino_dice_guess"].format(bet=bet),
                                                 reply_markup=kb_dice_guess, parse_mode="HTML")
                 await cleanup_old_game(message.bot, message.chat.id, user_id)
                 LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-                schedule_delete(sent_msg)
+                schedule_delete(sent_msg, DELAYS["default"])
                 return
         emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}
         dice_msg = await message.answer_dice(emoji=emoji_map[game])
         import asyncio
-        await asyncio.sleep(4.0 if game in ["slot", "bowl", "fball", "bball"] else 3.0)
+        await asyncio.sleep(
+            DELAYS["casino_slot"] if game in ["slot", "bowl", "fball", "bball"] else DELAYS["casino_dice"])
         msg_result, win_amount = await casino_service.play_emoji_game(user_id=user_id, game=game, bet=bet,
                                                                       dice_value=dice_msg.dice.value, guess=guess)
-        res_text = f"{emoji_map[game]} <b>РЕЗУЛЬТАТ: {dice_msg.dice.value}</b>\n\n{msg_result}\n💸 Выигрыш: <b>{win_amount} ₣</b>"
+        res_text = LEXICON["casino_result"].format(emoji=emoji_map[game], dice_value=dice_msg.dice.value,
+                                                   msg_result=msg_result, win_amount=win_amount)
         retry_val = str(bet) if game != "dice" else f"{bet}_{guess}"
         kb_retry = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Повторить партию",
                                                                                callback_data=CasinoCb(act="play",
@@ -140,8 +142,8 @@ async def cmd_direct_games(message: Message, casino_service: CasinoService):
                                                                                                       val=retry_val).pack())]])
         res_msg = await message.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [dice_msg.message_id, res_msg.message_id]
-        schedule_delete(dice_msg)
-        schedule_delete(res_msg)
+        schedule_delete(dice_msg, DELAYS["default"])
+        schedule_delete(res_msg, DELAYS["default"])
     except (UserNotRegisteredError, NotEnoughMoneyError) as e:
         await message.answer(str(e))
 
@@ -162,27 +164,26 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
             pass
         try:
             balance = await casino_service.get_balance(user_id)
-            sent_msg = await callback.message.answer(
-                f"🎰 <b>КАЗИНО PHOENIX</b> 🎰\n\n💰 Твой баланс: <b>{balance}</b> ₣\n\nВыбери игру:",
-                reply_markup=kb_casino_main(balance), parse_mode="HTML")
+            sent_msg = await callback.message.answer(LEXICON["casino_welcome"].format(balance=balance),
+                                                     reply_markup=kb_casino_main(balance), parse_mode="HTML")
             LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-            schedule_delete(sent_msg)
+            schedule_delete(sent_msg, DELAYS["default"])
         except UserNotRegisteredError:
             pass
         return
     if act == "saper_route":
-        return await callback.message.edit_text("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
-                                                reply_markup=kb_saper_setup_bet(), parse_mode="HTML")
+        return await callback.message.edit_text(LEXICON["saper_bet_prompt"], reply_markup=kb_saper_setup_bet(),
+                                                parse_mode="HTML")
     if act == "bet":
         game_names = {"bj": "🃏 Блэкджек", "slot": "🎰 Слоты", "dice": "🎲 Кости", "darts": "🎯 Дартс", "bowl": "🎳 Боулинг",
                       "fball": "⚽️ Футбол", "bball": "🏀 Баскетбол"}
-        return await callback.message.edit_text(f"{game_names[game]}\n\nВыберите размер ставки:",
+        return await callback.message.edit_text(LEXICON["casino_bet_prompt"].format(game_name=game_names[game]),
                                                 reply_markup=kb_casino_bet(game), parse_mode="HTML")
     if act == "play" and game == "dice" and "_" not in val:
         try:
             balance = await casino_service.get_balance(user_id)
             bet = balance if val == "all" else int(val)
-            if balance < bet: return await callback.answer("Недостаточно средств!", show_alert=True)
+            if balance < bet: return await callback.answer(LEXICON["casino_no_money"], show_alert=True)
             kb_dice_guess = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="1️⃣",
                                       callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_1").pack()),
@@ -198,8 +199,8 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
                                       callback_data=CasinoCb(act="play", game="dice", val=f"{bet}_6").pack())],
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data=CasinoCb(act="bet", game="dice").pack())]
             ])
-            await callback.message.edit_text(f"🎲 Ставка: <b>{bet} ₣</b>\n\nНа какое число ставишь?",
-                                             reply_markup=kb_dice_guess, parse_mode="HTML")
+            await callback.message.edit_text(LEXICON["casino_dice_guess"].format(bet=bet), reply_markup=kb_dice_guess,
+                                             parse_mode="HTML")
         except UserNotRegisteredError:
             pass
         return
@@ -210,7 +211,7 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
                 bet, guess = int(val.split("_")[0]), int(val.split("_")[1])
             else:
                 bet, guess = (balance if val == "all" else int(val)), None
-            if balance < bet: return await callback.answer("Недостаточно средств!", show_alert=True)
+            if balance < bet: return await callback.answer(LEXICON["casino_no_money"], show_alert=True)
             if game == "bj": return await start_blackjack(callback, user_id, bet, casino_service)
 
             await cleanup_old_game(callback.bot, callback.message.chat.id, user_id)
@@ -222,10 +223,12 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
             emoji_map = {"slot": "🎰", "dice": "🎲", "darts": "🎯", "bowl": "🎳", "fball": "⚽", "bball": "🏀"}
             dice_msg = await callback.message.answer_dice(emoji=emoji_map[game])
             import asyncio
-            await asyncio.sleep(4.0 if game in ["slot", "bowl", "fball", "bball"] else 3.0)
+            await asyncio.sleep(
+                DELAYS["casino_slot"] if game in ["slot", "bowl", "fball", "bball"] else DELAYS["casino_dice"])
             msg_result, win_amount = await casino_service.play_emoji_game(user_id=user_id, game=game, bet=bet,
                                                                           dice_value=dice_msg.dice.value, guess=guess)
-            res_text = f"{emoji_map[game]} <b>РЕЗУЛЬТАТ: {dice_msg.dice.value}</b>\n\n{msg_result}\n💸 Выигрыш: <b>{win_amount} ₣</b>"
+            res_text = LEXICON["casino_result"].format(emoji=emoji_map[game], dice_value=dice_msg.dice.value,
+                                                       msg_result=msg_result, win_amount=win_amount)
             retry_val = str(bet) if game != "dice" else f"{bet}_{guess}"
             kb_retry = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Повторить",
                                                                                    callback_data=CasinoCb(act="play",
@@ -237,8 +240,8 @@ async def cb_casino_handler(callback: CallbackQuery, callback_data: CasinoCb, ca
             res_msg = await callback.message.answer(res_text, reply_markup=kb_retry, parse_mode="HTML")
 
             LAST_GAME_MSGS[user_id] = [dice_msg.message_id, res_msg.message_id]
-            schedule_delete(dice_msg)
-            schedule_delete(res_msg)
+            schedule_delete(dice_msg, DELAYS["default"])
+            schedule_delete(res_msg, DELAYS["default"])
         except (UserNotRegisteredError, NotEnoughMoneyError) as e:
             await callback.answer(str(e), show_alert=True)
 
@@ -261,7 +264,7 @@ async def start_blackjack(callback: CallbackQuery, user_id: int, bet: int, casin
     p_hand_str = ", ".join(player_hand)
     d_card = dealer_hand[0]
 
-    text = f"🃏 <b>БЛЭКДЖЕК</b>\n\n💸 Ставка: <b>{bet} ₣</b>\n\n🏦 Дилер: {d_card}, 🂠 (?)\n👤 Ты: {p_hand_str} <b>({pval})</b>\n\nТвой ход:"
+    text = LEXICON["bj_state"].format(bet=bet, d_card=d_card, p_hand=p_hand_str, pval=pval)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👇 Ещё карту", callback_data=BjCb(act="hit").pack()),
          InlineKeyboardButton(text="✋ Хватит", callback_data=BjCb(act="stand").pack())]])
@@ -284,7 +287,7 @@ async def render_blackjack(message: Message, user_id: int, casino_service: Casin
     p_hand = ", ".join(game["player_hand"])
     d_card = game["dealer_hand"][0]
     pval = calc_hand(game["player_hand"])
-    text = f"🃏 <b>БЛЭКДЖЕК</b>\n\n💸 Ставка: <b>{game['bet']} ₣</b>\n\n🏦 Дилер: {d_card}, 🂠 (?)\n👤 Ты: {p_hand} <b>({pval})</b>\n\nТвой ход:"
+    text = LEXICON["bj_state"].format(bet=game['bet'], d_card=d_card, p_hand=p_hand, pval=pval)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👇 Ещё карту", callback_data=BjCb(act="hit").pack()),
          InlineKeyboardButton(text="✋ Хватит", callback_data=BjCb(act="stand").pack())]])
@@ -295,7 +298,8 @@ async def render_blackjack(message: Message, user_id: int, casino_service: Casin
 async def cb_bj_handler(callback: CallbackQuery, callback_data: BjCb, casino_service: CasinoService):
     user_id = callback.from_user.id
     game_data = await casino_service.get_active_game(user_id)
-    if not game_data or game_data["game_type"] != "bj": return await callback.answer("Игра закончена!", show_alert=True)
+    if not game_data or game_data["game_type"] != "bj": return await callback.answer(LEXICON["casino_game_over"],
+                                                                                     show_alert=True)
 
     game = game_data["state"]
     act = callback_data.act
@@ -355,7 +359,8 @@ async def finish_blackjack(callback: CallbackQuery, user_id: int, reason: str, c
     p_str = ", ".join(p_hand)
     d_str = ", ".join(d_hand)
     dval = calc_hand(d_hand)
-    text = f"🃏 <b>БЛЭКДЖЕК: ИТОГИ</b>\n\n🏦 Дилер: {d_str} <b>({dval})</b>\n👤 Ты: {p_str} <b>({pval})</b>\n\n{res_msg}\n💸 Выигрыш: <b>{win_amount} ₣</b>"
+    text = LEXICON["bj_result"].format(d_hand=d_str, dval=dval, p_hand=p_str, pval=pval, res_msg=res_msg,
+                                       win_amount=win_amount)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Повторить", callback_data=CasinoCb(act="play", game="bj", val=str(bet)).pack())],
         [InlineKeyboardButton(text="⬅️ Меню игр", callback_data=CasinoCb(act="menu", game="none").pack())]])
@@ -374,8 +379,8 @@ async def cmd_bj_direct(message: Message, casino_service: CasinoService):
         if len(parts) > 1 and (parts[1].isdigit() or parts[1] == "all"):
             val = parts[1]
             bet = balance if val == "all" else int(val)
-            if bet < 10: return await message.answer("Минимальная ставка 10 ₣!")
-            if balance < bet: return await message.answer("Недостаточно средств!")
+            if bet < 10: return await message.answer(LEXICON["casino_min_bet"])
+            if balance < bet: return await message.answer(LEXICON["casino_no_money"])
 
             class FakeCb:
                 def __init__(self, msg):
@@ -385,14 +390,14 @@ async def cmd_bj_direct(message: Message, casino_service: CasinoService):
 
             await start_blackjack(FakeCb(message), user_id, bet, casino_service)
         else:
-            sent_msg = await message.answer("🃏 <b>БЛЭКДЖЕК</b>\n\nВыберите размер ставки:",
+            sent_msg = await message.answer(LEXICON["casino_bet_prompt"].format(game_name="🃏 <b>БЛЭКДЖЕК</b>"),
                                             reply_markup=kb_casino_bet("bj"), parse_mode="HTML")
             await cleanup_old_game(message.bot, message.chat.id, user_id)
             LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-            schedule_delete(sent_msg)
+            schedule_delete(sent_msg, DELAYS["default"])
     except UserNotRegisteredError as e:
         sent = await message.answer(str(e))
-        schedule_delete(sent, 60)
+        schedule_delete(sent, DELAYS["default"])
 
 
 @router.message(lambda msg: is_cmd(msg.text, ["сапер", "saper", "сапёр"]))
@@ -414,16 +419,16 @@ async def cmd_saper(message: Message, casino_service: CasinoService):
                     break
     await cleanup_old_game(message.bot, message.chat.id, user_id)
     if not bet_str:
-        sent_msg = await message.answer("💣 <b>САПЕР</b>\n\nВыберите сумму ставки (мин. 10 ₣):",
-                                        reply_markup=kb_saper_setup_bet(), parse_mode="HTML")
+        sent_msg = await message.answer(LEXICON["saper_bet_prompt"], reply_markup=kb_saper_setup_bet(),
+                                        parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-        schedule_delete(sent_msg)
+        schedule_delete(sent_msg, DELAYS["default"])
         return
     if not diff:
-        sent_msg = await message.answer(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{bet_str}</b> ₣\nВыберите сложность:",
+        sent_msg = await message.answer(LEXICON["saper_diff_prompt"].format(bet=bet_str),
                                         reply_markup=kb_saper_setup_diff(bet_str), parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-        schedule_delete(sent_msg)
+        schedule_delete(sent_msg, DELAYS["default"])
         return
     await start_saper_game(message.chat.id, user_id, message.from_user.full_name, bet_str, diff, casino_service,
                            bot_msg=message)
@@ -437,14 +442,14 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
     async def send_error(txt):
         if isinstance(bot_msg, Message):
             msg = await bot_msg.answer(txt)
-            schedule_delete(msg, 60)
+            schedule_delete(msg, DELAYS["default"])
         elif isinstance(bot_msg, CallbackQuery):
             await bot_msg.message.edit_text(txt)
 
     try:
         balance = await casino_service.get_balance(user_id)
         bet = balance if bet_str == "all" else int(bet_str)
-        if bet < 10: return await send_error("❌ Минимальная ставка в сапере — <b>10</b> ₣.")
+        if bet < 10: return await send_error(LEXICON["saper_min_bet"])
 
         await casino_service.charge_bet(user_id, bet)
         mines_count = SAPER_DIFFS[diff]["mines"]
@@ -456,7 +461,7 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
                  "mult": 1.0}
         await casino_service.save_active_game(user_id, "saper", state)
 
-        text = f"💣 <b>САПЕР</b> 💣\n\n👤 Игрок: <b>{user_name}</b>\n🕹 Сложность: <b>{SAPER_DIFFS[diff]['name']}</b>\n💸 Ставка: <b>{bet}</b> ₣\n\n<i>Открывай ячейки, но берегись мин!</i>"
+        text = LEXICON["saper_start"].format(name=user_name, diff_name=SAPER_DIFFS[diff]['name'], bet=bet)
         if isinstance(bot_msg, CallbackQuery):
             try:
                 await bot_msg.message.delete()
@@ -465,7 +470,7 @@ async def start_saper_game(chat_id: int, user_id: int, user_name: str, bet_str: 
 
         sent_msg = await bot.send_message(chat_id, text, reply_markup=kb_saper_game(state), parse_mode="HTML")
         LAST_GAME_MSGS[user_id] = [sent_msg.message_id]
-        schedule_delete(sent_msg)
+        schedule_delete(sent_msg, DELAYS["default"])
     except (UserNotRegisteredError, NotEnoughMoneyError) as e:
         await send_error(str(e))
 
@@ -477,7 +482,7 @@ async def cb_saper_setup(callback: CallbackQuery, callback_data: SaperSetupCb, c
     val = callback_data.val
     if act == "cancel": return await callback.message.delete()
     if act == "bet":
-        await callback.message.edit_text(f"💣 <b>САПЕР</b>\n\nСтавка: <b>{val}</b> ₣\nВыберите сложность:",
+        await callback.message.edit_text(LEXICON["saper_diff_prompt"].format(bet=val),
                                          reply_markup=kb_saper_setup_diff(val), parse_mode="HTML")
     elif act.startswith("start_"):
         bet_str = act.split("_")[1]
@@ -490,11 +495,12 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
     user_id = callback.from_user.id
     game_data = await casino_service.get_active_game(user_id)
     if callback_data.act == "ignore": return await callback.answer()
-    if not game_data or game_data["game_type"] != "saper": return await callback.answer(
-        "❌ Это не ваша игра или она уже завершена!", show_alert=True)
+    if not game_data or game_data["game_type"] != "saper": return await callback.answer(LEXICON["saper_not_your_game"],
+                                                                                        show_alert=True)
 
     game = game_data["state"]
-    if game["chat_id"] != callback.message.chat.id: return await callback.answer("❌ Ошибка чата!", show_alert=True)
+    if game["chat_id"] != callback.message.chat.id: return await callback.answer(LEXICON["saper_chat_error"],
+                                                                                 show_alert=True)
 
     act = callback_data.act
     idx = callback_data.idx
@@ -502,7 +508,8 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
     if act == "cashout":
         win_amount = int(game["bet"] * game["mult"])
         await casino_service.credit_win(user_id, win_amount)
-        text = f"💰 <b>ДЕНЬГИ СНЯТЫ!</b>\n\n👤 Игрок: <b>{game['name']}</b>\n🕹 Сложность: <b>{SAPER_DIFFS[game['diff']]['name']}</b>\n📥 Забрано: <b>{win_amount} ₣</b> (x{game['mult']:.1f})"
+        text = LEXICON["saper_cashout"].format(name=game['name'], diff_name=SAPER_DIFFS[game['diff']]['name'],
+                                               win_amount=win_amount, mult=round(game['mult'], 1))
         kb = kb_saper_game(game, game_over=True)
         kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию",
                                                         callback_data=SaperSetupCb(act=f"start_{game['bet']}",
@@ -514,10 +521,10 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
         return
 
     if act == "click":
-        if idx in game["clicked"]: return await callback.answer("Эта ячейка уже открыта!", show_alert=False)
+        if idx in game["clicked"]: return await callback.answer(LEXICON["saper_already_open"], show_alert=False)
         if game["grid"][idx] == 1:
             game["clicked"].append(idx)
-            text = f"💥 <b>БУМ! ВЫ ПРОИГРАЛИ!</b> 💥\n\n👤 Игрок: <b>{game['name']}</b>\n💸 Потеряно: <b>{game['bet']} ₣</b>\n<i>Мина оказалась прямо под ногой...</i>"
+            text = LEXICON["saper_boom"].format(name=game['name'], bet=game['bet'])
             kb = kb_saper_game(game, game_over=True)
             kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию",
                                                             callback_data=SaperSetupCb(act=f"start_{game['bet']}",
@@ -535,7 +542,7 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
         if len(game["clicked"]) == safe_total:
             win_amount = int(game["bet"] * game["mult"])
             await casino_service.credit_win(user_id, win_amount)
-            text = f"🏆 <b>ИДЕАЛЬНАЯ ПОБЕДА!</b> 🏆\n\n👤 Игрок: <b>{game['name']}</b>\n🎉 Все безопасные ячейки найдены!\n🤑 Выигрыш: <b>{win_amount} ₣</b> (x{game['mult']:.1f})"
+            text = LEXICON["saper_win"].format(name=game['name'], win_amount=win_amount, mult=round(game['mult'], 1))
             kb = kb_saper_game(game, game_over=True)
             kb.inline_keyboard.append([InlineKeyboardButton(text="🔄 Повторить партию",
                                                             callback_data=SaperSetupCb(act=f"start_{game['bet']}",
@@ -548,7 +555,8 @@ async def cb_saper_play(callback: CallbackQuery, callback_data: SaperCb, casino_
 
         await casino_service.save_active_game(user_id, "saper", game)
         current_win = int(game["bet"] * game["mult"])
-        text = f"💣 <b>САПЕР</b> 💣\n\n👤 Игрок: <b>{game['name']}</b>\n🕹 Сложность: <b>{SAPER_DIFFS[game['diff']]['name']}</b>\n💸 Ставка: <b>{game['bet']}</b> ₣\n💰 Выигрыш: <b>{current_win} ₣</b> (x{game['mult']:.2f})\n\n<i>Играем дальше или забираем?</i>"
+        text = LEXICON["saper_continue"].format(name=game['name'], diff_name=SAPER_DIFFS[game['diff']]['name'],
+                                                bet=game['bet'], current_win=current_win, mult=round(game['mult'], 2))
         try:
             await callback.message.edit_text(text, reply_markup=kb_saper_game(game), parse_mode="HTML")
         except:

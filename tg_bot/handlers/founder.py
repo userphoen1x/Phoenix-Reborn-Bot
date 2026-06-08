@@ -6,7 +6,8 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
-from core.constants import ROLE_SYMBOLS
+from core.constants import ROLE_SYMBOLS, DELAYS
+from core.lexicon import LEXICON
 from core.garbage_collector import schedule_delete
 
 router = Router()
@@ -27,13 +28,13 @@ async def cmd_unlink_tag(message: Message, user_repo: UserRepository):
         u = message.reply_to_message.from_user
         target_name = f"@{u.username}" if u.username else u.full_name
     if not target_name:
-        await message.answer("Укажите @username или ответьте на сообщение пользователя.")
+        await message.answer(LEXICON["mod_err_no_target"])
         return
     res = await user_repo.unlink_user_tag(target_name)
     if res:
-        await message.answer(f"✅ Тег успешно отвязан от профиля {target_name}, пользователь переведен в Гости.")
+        await message.answer(LEXICON["fnd_unlink_success"].format(target=target_name))
     else:
-        await message.answer(f"❌ Пользователь {target_name} не найден в базе.")
+        await message.answer(LEXICON["profile_not_found_db"].format(target=target_name))
 
 
 @router.message(Command("set_key"))
@@ -41,20 +42,15 @@ async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
     if not is_tech_admin(message.from_user.id): return
     parts = message.text.split(maxsplit=1)
     if len(parts) < 2:
-        return await message.answer("❌ Укажите новый ключ. Пример:\n<code>/set_key eyJhbGciOi...</code>",
-                                    parse_mode="HTML")
+        return await message.answer(LEXICON["fnd_err_no_key"], parse_mode="HTML")
     new_key = parts[1].strip()
     settings.BS_API_KEY = new_key
-    wait_msg = await message.answer("⏳ Проверяю новый ключ и IP-адрес...")
+    wait_msg = await message.answer(LEXICON["fnd_key_check"])
     is_valid, status_msg = await brawl_client.check_api_connection()
     if is_valid:
-        await wait_msg.edit_text(
-            "✅ <b>API ключ успешно обновлен!</b>\nСвязь с серверами Brawl Stars установлена (200 OK).",
-            parse_mode="HTML")
+        await wait_msg.edit_text(LEXICON["fnd_key_ok"], parse_mode="HTML")
     else:
-        await wait_msg.edit_text(
-            f"⚠️ <b>Ключ сохранен, но API недоступно!</b>\nВозможно, вы не добавили новый IP в белый список Supercell.\nОшибка: <code>{status_msg}</code>",
-            parse_mode="HTML")
+        await wait_msg.edit_text(LEXICON["fnd_key_fail"].format(error=status_msg), parse_mode="HTML")
     try:
         await message.delete()
     except:
@@ -64,33 +60,33 @@ async def cmd_set_key(message: Message, brawl_client: BrawlAPIClient):
 @router.message(Command("ping"))
 async def admin_ping(message: Message, brawl_client: BrawlAPIClient):
     if not is_tech_admin(message.from_user.id): return
-    wait_msg = await message.answer("⏳ Проверяю связь с серверами Supercell...")
+    wait_msg = await message.answer(LEXICON["fnd_ping_check"])
     ok, text = await brawl_client.check_api_connection()
-    await wait_msg.edit_text(f"Статус API:\n{text}")
+    await wait_msg.edit_text(LEXICON["fnd_ping_res"].format(text=text))
 
 
 @router.message(Command("get_db"))
 async def admin_get_db(message: Message):
     if not is_tech_admin(message.from_user.id): return
     if os.path.exists(settings.DB_PATH):
-        await message.answer_document(document=FSInputFile(settings.DB_PATH), caption="🗄 База данных")
+        await message.answer_document(document=FSInputFile(settings.DB_PATH), caption=LEXICON["fnd_db_caption"])
     else:
-        await message.answer("❌ Файл не найден")
+        await message.answer(LEXICON["fnd_db_fail"])
 
 
 @router.message(Command("force_roles"))
 async def cmd_force_roles(message: Message, bot: Bot):
     if not is_tech_admin(message.from_user.id): return
-    await message.answer("Запускаю ручную проверку ролей. Ждите...")
+    await message.answer(LEXICON["fnd_force_roles_start"])
     from scheduler.jobs import check_roles
     await check_roles(bot)
-    await message.answer("✅ Проверка завершена.")
+    await message.answer(LEXICON["fnd_force_roles_ok"])
 
 
 @router.callback_query(F.data.startswith("role_approve:"))
 async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserRepository):
     if str(callback.from_user.id) != settings.FOUNDER_ID:
-        return await callback.answer("Нет прав", show_alert=True)
+        return await callback.answer(LEXICON["fnd_no_rights"], show_alert=True)
 
     _, uid_str, role_eng = callback.data.split(":")
     user_id = int(uid_str)
@@ -98,24 +94,24 @@ async def approve_role(callback: CallbackQuery, bot: Bot, user_repo: UserReposit
 
     user_data = await user_repo.get_user_data(user_id)
     if not user_data:
-        return await callback.message.edit_text("❌ Ошибка: Пользователь больше не найден в базе.")
+        return await callback.message.edit_text(LEXICON["fnd_role_err_db"])
 
     try:
         await user_repo.set_user_role(user_id, role_ru, "Одобрен")
-        await callback.message.edit_text(
-            f"✅ Внутренние права бота (<b>{role_ru}</b>) успешно выданы пользователю (ID: <code>{user_id}</code>).",
-            parse_mode="HTML")
+        await callback.message.edit_text(LEXICON["fnd_role_ok"].format(role=role_ru, user_id=user_id),
+                                         parse_mode="HTML")
     except Exception as e:
-        await callback.message.edit_text(f"❌ Ошибка обновления базы данных: {e}")
+        await callback.message.edit_text(LEXICON["fnd_role_db_err"].format(error=e))
 
 
 @router.callback_query(F.data.startswith("role_reject:"))
 async def reject_role(callback: CallbackQuery, user_repo: UserRepository):
-    if str(callback.from_user.id) != settings.FOUNDER_ID: return await callback.answer("Нет прав", show_alert=True)
+    if str(callback.from_user.id) != settings.FOUNDER_ID: return await callback.answer(LEXICON["fnd_no_rights"],
+                                                                                       show_alert=True)
     _, uid_str = callback.data.split(":")
     user_id = int(uid_str)
     await user_repo.set_user_role(user_id, "Участник", "Отклонен")
-    await callback.message.edit_text(f"Запрос на выдачу прав (ID: {user_id}) отклонен.")
+    await callback.message.edit_text(LEXICON["fnd_role_reject"].format(user_id=user_id))
 
 
 @router.message(F.text.lower().startswith(("запросы", "/запросы")))
@@ -126,11 +122,11 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
     pending_users = [u for u in db_users if u["role_status"] == "Ожидает"]
 
     if not pending_users:
-        sent = await message.answer("✅ В базе нет пользователей, ожидающих подтверждения звания.")
-        schedule_delete(sent, 30)
+        sent = await message.answer(LEXICON["fnd_req_empty"])
+        schedule_delete(sent, DELAYS["short"])
         return
 
-    wait_msg = await message.answer("⏳ Проверяю актуальные звания в клубе...")
+    wait_msg = await message.answer(LEXICON["fnd_req_check"])
     members, _ = await brawl_client.get_all_club_members()
 
     role_translation = {"president": "Президент", "vicePresident": "Вице-президент", "senior": "Ветеран",
@@ -159,7 +155,8 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
             [InlineKeyboardButton(text="Нет", callback_data=f"role_reject:{u_id}")]
         ])
 
-        msg_text = f"🔄 <b>ПОВТОРНЫЙ ЗАПРОС</b>\n\n👤 {display_tg} (ID: <code>{u_id}</code>)\n🎮 Игрок: <b>{player_name}</b> (<code>{tag}</code>)\n🏰 Клуб: <b>{club_name}</b>\n\nОжидает подтверждения звания <b>{api_role}</b>. Выдаем права модератора?"
+        msg_text = LEXICON["fnd_req_resend"].format(display_tg=display_tg, u_id=u_id, player_name=player_name, tag=tag,
+                                                    club_name=club_name, api_role=api_role)
 
         try:
             if settings.FOUNDER_ID:
@@ -168,17 +165,17 @@ async def cmd_resend_requests(message: Message, bot: Bot, user_repo: UserReposit
         except Exception:
             pass
 
-    await wait_msg.edit_text(f"✅ Актуальные запросы ({count} шт.) отправлены Главару в ЛС.")
+    await wait_msg.edit_text(LEXICON["fnd_req_sent"].format(count=count))
 
 
 @router.message(Command("force_scan"), F.chat.type == "private")
 async def admin_force_scan(message: Message):
     if not is_tech_admin(message.from_user.id): return
 
-    sent_msg = await message.answer("⏳ Собираю данные...")
+    sent_msg = await message.answer(LEXICON["fnd_scan_start"])
     from scheduler.jobs import collect_daily_stats
     await collect_daily_stats()
-    await sent_msg.edit_text("✅ Готово. Сбор данных завершен.")
+    await sent_msg.edit_text(LEXICON["fnd_scan_ok"])
 
 
 @router.message(Command("all_reg_list"), F.chat.type == "private")
@@ -189,10 +186,10 @@ async def cmd_all_reg_list(message: Message, user_repo: UserRepository):
 
     users = await user_repo.get_all_registered_users()
     if not users:
-        await message.answer("📭 Список зарегистрированных пользователей пуст.")
+        await message.answer(LEXICON["fnd_reg_empty"])
         return
 
-    lines = ["📋 <b>Список зарегистрированных игроков:</b>\n"]
+    lines = [LEXICON["fnd_reg_list_title"]]
     for i, (tg_name, tag, player_name) in enumerate(users, 1):
         name_str = tg_name if tg_name.startswith("@") else f"<b>{tg_name}</b>"
         lines.append(f"{i}. {name_str} привязан к тегу {tag} ({player_name})")
