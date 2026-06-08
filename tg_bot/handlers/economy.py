@@ -1,9 +1,12 @@
 import re
 from aiogram import Router, F
 from aiogram.types import Message
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
+
 from services.economy_service import EconomyService
-from tg_bot.filters.role_filters import IsModerator
 from database.repositories.user_repo import UserRepository
+from tg_bot.filters.role_filters import IsModerator
 from utils.resolvers import resolve_target
 from core.garbage_collector import schedule_delete
 from core.lexicon import LEXICON
@@ -17,12 +20,12 @@ def is_cmd(text: str, cmds: list) -> bool:
     t = text.lower().strip()
     for c in cmds:
         pattern = r'^' + re.escape(c) + r'(?:\s|$|[.,!?\n])'
-        if re.match(pattern, t):
-            return True
+        if re.match(pattern, t): return True
     return False
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["баланс", "б", "bal"])))
-async def cmd_balance(message: Message, eco_service: EconomyService, user_repo: UserRepository):
+@inject
+async def cmd_balance(message: Message, eco_service: FromDishka[EconomyService], user_repo: FromDishka[UserRepository]):
     target_id, target_name = await resolve_target(message, user_repo)
     if not target_id:
         target_id = message.from_user.id
@@ -39,7 +42,8 @@ async def cmd_balance(message: Message, eco_service: EconomyService, user_repo: 
         schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["перевод", "pay", "give"])))
-async def cmd_transfer(message: Message, eco_service: EconomyService, user_repo: UserRepository):
+@inject
+async def cmd_transfer(message: Message, eco_service: FromDishka[EconomyService], user_repo: FromDishka[UserRepository]):
     parts = message.text.split()
     amount = next((int(p) for p in parts[1:] if p.isdigit()), None)
     target_id, target_name = await resolve_target(message, user_repo)
@@ -61,7 +65,8 @@ async def cmd_transfer(message: Message, eco_service: EconomyService, user_repo:
         schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["начислить", "addmoney"])), IsModerator())
-async def cmd_add_money(message: Message, eco_service: EconomyService, user_repo: UserRepository):
+@inject
+async def cmd_add_money(message: Message, eco_service: FromDishka[EconomyService], user_repo: FromDishka[UserRepository]):
     parts = message.text.split()
     amount = next((int(p) for p in parts[1:] if p.isdigit()), None)
     target_id, target_name = await resolve_target(message, user_repo)
@@ -80,7 +85,8 @@ async def cmd_add_money(message: Message, eco_service: EconomyService, user_repo
         schedule_delete(sent, DELAYS["default"])
 
 @router.message(F.text.func(lambda text: is_cmd(text, ["штраф", "removemoney"])), IsModerator())
-async def cmd_remove_money(message: Message, eco_service: EconomyService, user_repo: UserRepository):
+@inject
+async def cmd_remove_money(message: Message, eco_service: FromDishka[EconomyService], user_repo: FromDishka[UserRepository]):
     parts = message.text.split()
     amount = next((int(p) for p in parts[1:] if p.isdigit()), None)
     target_id, target_name = await resolve_target(message, user_repo)

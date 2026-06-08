@@ -1,6 +1,9 @@
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
 from core.config import settings
+from database.repositories.user_repo import UserRepository
+from dishka import inject
+from dishka.integrations.aiogram import FromDishka
 
 class IsTechAdmin(BaseFilter):
     async def __call__(self, message: Message) -> bool:
@@ -12,7 +15,8 @@ class IsFounder(BaseFilter):
         return str(message.from_user.id) == settings.FOUNDER_ID
 
 class IsModerator(BaseFilter):
-    async def __call__(self, message: Message, user_repo) -> bool:
+    @inject
+    async def __call__(self, message: Message, user_repo: FromDishka[UserRepository]) -> bool:
         if str(message.from_user.id) == settings.FOUNDER_ID:
             return True
         role = await user_repo.get_user_role(message.from_user.id)
