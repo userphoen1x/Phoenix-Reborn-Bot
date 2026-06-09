@@ -9,6 +9,7 @@ from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient
 from core.config import settings
 from core.lexicon import LEXICON
+from utils.admin_logger import send_log
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -49,7 +50,6 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Fr
             bs_tag = current_user.get("tag", "")
             live_stats = await brawl_client.get_player_stats(bs_tag)
 
-            # Если API лежит (нет доступа)
             if live_stats is None:
                 return await wait_msg.edit_text(
                     "❌ Ошибка соединения с API Brawl Stars.\n\nВозможно, токен устарел или IP-адрес сервера не добавлен в белый список. Вызови команду /ping в чате для проверки.")
@@ -66,6 +66,14 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Fr
                 try:
                     link = await bot.create_chat_invite_link(int(settings.TARGET_CHAT_ID), member_limit=1)
                     await wait_msg.edit_text(LEXICON["reg_in_club_invite"].format(link=link.invite_link))
+
+                    log_text = (
+                        f"🔗 <b>Выдана инвайт-ссылка участнику клуба</b>\n\n"
+                        f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> (ID: <code>{user_id}</code>)\n"
+                        f"🎮 Игровой ник: <b>{live_stats.get('name', 'Игрок')}</b>\n"
+                        f"🏰 Клуб: <b>{live_stats.get('club', {}).get('name', 'Без клуба')}</b>"
+                    )
+                    await send_log(bot, "TOPIC_REG", log_text)
                 except Exception as e:
                     await wait_msg.edit_text(LEXICON["reg_invite_error"].format(error=e))
             elif in_club and in_chat:
@@ -115,9 +123,20 @@ async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: 
         await user_repo.register_user(user_id, tag, player_name,
                                       message.from_user.username or message.from_user.full_name)
 
+        club_name = player_stats.get("club", {}).get("name", "Без клуба")
+
         if not in_club and in_chat:
             await user_repo.set_user_role(user_id, "Гость", "Одобрен")
             await wait_msg.edit_text(LEXICON["reg_success_guest"])
+
+            log_text = (
+                f"📝 <b>Новая регистрация (Гость)</b>\n\n"
+                f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> (ID: <code>{user_id}</code>)\n"
+                f"🎮 Игровой ник: <b>{player_name}</b>\n"
+                f"🏷 Тег: <code>{tag}</code>\n"
+                f"🏰 Клуб: <b>{club_name}</b>"
+            )
+            await send_log(bot, "TOPIC_REG", log_text)
         elif in_club and not in_chat:
             role_ru = "Участник"
             r_status = "Одобрен"
@@ -127,6 +146,16 @@ async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: 
                 link = await bot.create_chat_invite_link(int(settings.TARGET_CHAT_ID), member_limit=1)
                 await wait_msg.edit_text(LEXICON["reg_success_invite"].format(role=role_ru, link=link.invite_link),
                                          parse_mode="HTML")
+
+                log_text = (
+                    f"📝 <b>Новая регистрация (Участник семейства)</b>\n\n"
+                    f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> (ID: <code>{user_id}</code>)\n"
+                    f"🎮 Игровой ник: <b>{player_name}</b>\n"
+                    f"🏷 Тег: <code>{tag}</code>\n"
+                    f"🏰 Клуб: <b>{club_name}</b>\n"
+                    f"🔗 Выдана ссылка на чат."
+                )
+                await send_log(bot, "TOPIC_REG", log_text)
             except Exception as e:
                 await wait_msg.edit_text(LEXICON["reg_invite_error"].format(error=e))
         elif in_club and in_chat:
@@ -134,6 +163,14 @@ async def process_tag(message: Message, state: FSMContext, bot: Bot, user_repo: 
             r_status = "Одобрен"
             await user_repo.set_user_role(user_id, role_ru, r_status)
             await wait_msg.edit_text(LEXICON["reg_success_update"].format(role=role_ru), parse_mode="HTML")
+
+            log_text = (
+                f"🔄 <b>Обновление данных профиля</b>\n\n"
+                f"👤 Пользователь: <a href='tg://user?id={user_id}'>{message.from_user.full_name}</a> (ID: <code>{user_id}</code>)\n"
+                f"🎮 Игровой ник: <b>{player_name}</b>\n"
+                f"🏰 Клуб: <b>{club_name}</b>"
+            )
+            await send_log(bot, "TOPIC_REG", log_text)
 
         await state.clear()
 

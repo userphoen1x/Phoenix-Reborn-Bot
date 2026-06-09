@@ -32,14 +32,14 @@ LEXICON = {
     "profile_loading": "⏳ Загружаю данные...",
     "profile_text": (
         "👤 <b>ПРОФИЛЬ УЧАСТНИКА</b>\n\n"
-        "┌ 📱 Ник: {name_link}\n"
-        "├ 🪪 {role_label}: {role_str}\n"
-        "├ 🏰 Клуб: {club_display}\n"
-        "├ 🏆 Общие: {trophies_str}\n"
-        "├ 🎖 Ранкед: {rank_name} ({rank_elo})\n"
-        "├ ⚔️ 3 на 3: {wins3v3}\n"
-        "├ 🌵 ШД: {sd_wins}\n"
-        "└ 💰 Баланс: {balance} ₣"
+        "📱 Ник · {name_link}\n"
+        "🪪 {role_label} · {role_str}\n"
+        "🏰 Клуб · {club_display}\n"
+        "🏆 Общие · {trophies_str}\n"
+        "🎖 Ранкед · {rank_name} ({rank_elo})\n"
+        "⚔️ 3 на 3 · {wins3v3}\n"
+        "🌵 ШД · {sd_wins}\n"
+        "💰 Баланс · {balance} ₣"
     ),
 
     # Регистрация

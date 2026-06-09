@@ -70,16 +70,17 @@ async def cmd_profile(message: Message, user_repo: FromDishka[UserRepository], e
     role_label = "Роли" if len(roles) > 1 else "Роль"
     role_str = ", ".join([f"{ROLE_SYMBOLS.get(r, '🗣️')} {r}" for r in roles])
 
-    player_name, club_name, _, tg_full_name = db_user
-    name_link = f"<a href='https://t.me/{tg_full_name[1:]}'>{player_name}</a>" if tg_full_name and tg_full_name.startswith(
-        "@") else f"<b>{player_name}</b>"
+    player_name, club_name, bs_tag, tg_full_name = db_user
+
+    trophies_str = wins3v3 = sd_wins = rank_name = rank_elo = "???"
     club_display = club_name if club_name else "Без клуба"
 
-    bs_tag = eco_data.get('bs_tag', '')
     if bs_tag:
         stats = await brawl_client.get_player_stats(bs_tag)
         baseline_map = await chat_repo.get_baseline_trophies(1, [bs_tag])
         if stats:
+            player_name = stats.get("name", player_name)
+            club_display = stats.get("club", {}).get("name", club_name if club_name else "Без клуба")
             trophies = stats['trophies']
             baseline = baseline_map.get(bs_tag, trophies)
             gain = trophies - baseline
@@ -89,11 +90,8 @@ async def cmd_profile(message: Message, user_repo: FromDishka[UserRepository], e
             sd_wins = stats['solo_wins'] + stats['duo_wins']
             rank_name = RANK_NAMES.get(stats.get('ranked_curr_rank', 0), "🏳️ Без ранга")
             rank_elo = stats.get('ranked_curr_elo', 0)
-        else:
-            trophies_str = wins3v3 = sd_wins = rank_name = rank_elo = "???"
-    else:
-        trophies_str = wins3v3 = sd_wins = rank_name = rank_elo = "???"
 
+    name_link = f"<a href='tg://user?id={target_id}'>{player_name}</a>"
     balance = eco_data.get("balance", 0)
 
     text = LEXICON["profile_text"].format(
@@ -143,8 +141,7 @@ async def cmd_mini_stats(message: Message, user_repo: FromDishka[UserRepository]
         schedule_delete(sent, DELAYS["short"])
         return
 
-    player_name, db_club_name, _, tg_full_name = db_user
-    bs_tag = eco_data.get('bs_tag', '')
+    player_name, db_club_name, bs_tag, tg_full_name = db_user
 
     if not bs_tag:
         sent = await message.answer(LEXICON["profile_not_linked"])
@@ -160,7 +157,7 @@ async def cmd_mini_stats(message: Message, user_repo: FromDishka[UserRepository]
     prefix = f"👤 <b>{player_name}</b>"
 
     if cmd == "клуб":
-        c_name = db_club_name if db_club_name else "Без клуба"
+        c_name = stats.get("club", {}).get("name", db_club_name if db_club_name else "Без клуба")
         text = f"{prefix}\n🏰 Клуб: <b>{c_name}</b>\n🔰 Роль: {game_role}"
     elif cmd in ["ранкед", "лига"]:
         rank_val = stats.get('ranked_curr_rank', 0)
