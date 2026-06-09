@@ -1,3 +1,5 @@
+import datetime
+import random
 from database.repositories.economy_repo import EconomyRepository
 from database.repositories.user_repo import UserRepository
 from core.exceptions import NotEnoughMoneyError, UserNotRegisteredError
@@ -33,3 +35,19 @@ class EconomyService:
         if not await self.user_repo.is_registered(user_id):
             raise UserNotRegisteredError("Пользователь не зарегистрирован.")
         await self.eco_repo.update_balance(user_id, amount)
+
+    async def claim_daily(self, user_id: int) -> int:
+        if not await self.user_repo.is_registered(user_id):
+            raise UserNotRegisteredError("Пользователь не зарегистрирован.")
+
+        data = await self.eco_repo.get_eco_data(user_id)
+        today_str = datetime.date.today().isoformat()
+
+        if data and data.get("last_daily") == today_str:
+            raise ValueError("Вы уже получили свою награду за сегодня! Приходите завтра.")
+
+        # Случайная награда от 100 до 300 ₣
+        amount = random.randint(100, 300)
+        await self.eco_repo.update_balance(user_id, amount)
+        await self.eco_repo.update_last_daily(user_id, today_str)
+        return amount
