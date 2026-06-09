@@ -12,7 +12,6 @@ from core.config import settings
 from core.globals import global_scheduler
 from core.di import AppProvider
 from database.connection import init_db
-from database.repositories.game_repo import GameRepository
 from scheduler.setup import start_scheduler
 from utils.admin_logger import send_log
 from tg_bot.middlewares.antispam import AntiSpamMiddleware
@@ -30,14 +29,8 @@ async def main():
     bot = Bot(token=settings.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # --- МАГИЯ DISHKA ---
     container = make_async_container(AppProvider())
     setup_dishka(container=container, router=dp)
-
-    # Инициализация таблиц казино через контейнер
-    async with container() as request_container:
-        game_repo = await request_container.get(GameRepository)
-        await game_repo.init_table()
 
     dp.message.middleware(AntiSpamMiddleware())
 

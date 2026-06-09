@@ -1,36 +1,34 @@
-import aiosqlite
 import json
 from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from database.models import ActiveGame
 
 class GameRepository:
-    def __init__(self, db: aiosqlite.Connection):
-        self.db = db
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
     async def init_table(self):
-        await self.db.execute("""
-            CREATE TABLE IF NOT EXISTS active_games (
-                user_id INTEGER PRIMARY KEY,
-                game_type TEXT,
-                state_json TEXT
-            )
-        """)
-        await self.db.commit()
+        pass
 
     async def save_game(self, user_id: int, game_type: str, state: dict):
         state_str = json.dumps(state, ensure_ascii=False)
-        await self.db.execute(
-            "INSERT OR REPLACE INTO active_games (user_id, game_type, state_json) VALUES (?, ?, ?)",
-            (user_id, game_type, state_str)
-        )
-        await self.db.commit()
+        game = await self.session.get(ActiveGame, user_id)
+        if game:
+            game.game_type = game_type
+            game.state_json = state_str
+        else:
+            game = ActiveGame(user_id=user_id, game_type=game_type, state_json=state_str)
+            self.session.add(game)
+        await self.session.commit()
 
     async def get_game(self, user_id: int) -> Optional[dict]:
-        cursor = await self.db.execute("SELECT game_type, state_json FROM active_games WHERE user_id = ?", (user_id,))
-        row = await cursor.fetchone()
-        if row:
-            return {"game_type": row[0], "state": json.loads(row[1])}
+        game = await self.session.get(ActiveGame, user_id)
+        if game:
+            return {"game_type": game.game_type, "state": json.loads(game.state_json)}
         return None
 
     async def delete_game(self, user_id: int):
-        await self.db.execute("DELETE FROM active_games WHERE user_id = ?", (user_id,))
-        await self.db.commit()
+        game = await self.session.get(ActiveGame, user_id)
+        if game:
+            await self.session.delete(game)
+            await self.session.commit()

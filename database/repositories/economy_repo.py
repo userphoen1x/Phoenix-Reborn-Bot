@@ -1,41 +1,36 @@
-import aiosqlite
-import json
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Optional, List, Tuple
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, desc
+from database.models import Economy, User
 
 class EconomyRepository:
-    def __init__(self, db: aiosqlite.Connection):
-        self.db = db
+    def __init__(self, session: AsyncSession):
+        self.session = session
 
-    async def get_eco_data(self, user_id: int) -> Optional[Dict[str, Any]]:
-        # Из запроса удалены t.xp и t.level
-        query = "SELECT t.balance, t.bot_class, t.last_work, t.inventory, u.bs_tag FROM tg_profiles t LEFT JOIN users u ON t.user_id = u.user_id WHERE t.user_id = ?"
-        async with self.db.execute(query, (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                return {
-                    "balance": row[0], 
-                    "bot_class": row[1], 
-                    "last_work": row[2], 
-                    "inventory": json.loads(row[3]) if row[3] else {}, 
-                    "bs_tag": row[4]
-                }
-            return None
+    async def get_eco_data(self, user_id: int) -> Optional[dict]:
+        eco = await self.session.get(Economy, user_id)
+        if eco:
+            return {"balance": eco.balance, "bs_tag": eco.bs_tag, "last_daily": eco.last_daily}
+        return None
 
     async def update_balance(self, user_id: int, amount: int):
-        await self.db.execute("UPDATE tg_profiles SET balance = balance + ? WHERE user_id = ?", (amount, user_id))
-        await self.db.commit()
+        eco = await self.session.get(Economy, user_id)
+        if eco:
+            eco.balance += amount
+            await self.session.commit()
 
-    async def set_eco_data(self, user_id: int, col: str, value: Any):
-        if isinstance(value, dict):
-            value = json.dumps(value)
-        await self.db.execute(f"UPDATE tg_profiles SET {col} = ? WHERE user_id = ?", (value, user_id))
-        await self.db.commit()
+    async def get_top_balance(self, limit: int = 10) -> List[Tuple[str, str, int, int]]:
+        stmt = (
+            select(User.tg_name, User.name, Economy.balance, User.user_id)
+            .outerjoin(User, Economy.user_id == User.user_id)
+            .order_by(desc(Economy.balance))
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return [(row.tg_name, row.name, row.balance, row.user_id) for row in result]
 
-    async def get_top_balance(self, limit: int = 10) -> List[Tuple]:
-        query = "SELECT t.full_name, u.player_name, t.balance, t.user_id FROM tg_profiles t LEFT JOIN users u ON t.user_id = u.user_id WHERE t.balance > 0 ORDER BY t.balance DESC LIMIT ?"
-        async with self.db.execute(query, (limit,)) as cursor:
-            return await cursor.fetchall()
-
-    async def reset_all_balances(self, default_value: int = 1000):
-        await self.db.execute("UPDATE tg_profiles SET balance = ?", (default_value,))
-        await self.db.commit()
+    async def update_last_daily(self, user_id: int, date_str: str):
+        eco = await self.session.get(Economy, user_id)
+        if eco:
+            eco.last_daily = date_str
+            await self.session.commit()
