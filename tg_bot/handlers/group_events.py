@@ -1,7 +1,6 @@
 from aiogram import Router, F, Bot
 from aiogram.types import Message
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from database.repositories.user_repo import UserRepository
 from core.garbage_collector import schedule_delete

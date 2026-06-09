@@ -3,8 +3,7 @@ from aiogram import Router, Bot, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile, \
     LinkPreviewOptions
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from database.repositories.user_repo import UserRepository
 from external.brawl_api import BrawlAPIClient

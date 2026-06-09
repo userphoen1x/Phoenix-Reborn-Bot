@@ -8,8 +8,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.filters import Command
 from aiogram.filters.callback_data import CallbackData
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from services.ai_service import AiService
 from database.repositories.chat_repo import ChatRepository

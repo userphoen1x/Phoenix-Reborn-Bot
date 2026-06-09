@@ -2,8 +2,7 @@ import re
 import string
 from aiogram import Router, F
 from aiogram.types import Message, LinkPreviewOptions
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from database.repositories.user_repo import UserRepository
 from database.repositories.economy_repo import EconomyRepository

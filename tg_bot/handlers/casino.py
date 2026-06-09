@@ -3,8 +3,7 @@ import random
 from aiogram import Router, F, Bot
 from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from services.casino_service import CasinoService
 from core.exceptions import UserNotRegisteredError, NotEnoughMoneyError

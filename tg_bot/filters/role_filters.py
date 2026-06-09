@@ -2,8 +2,7 @@ from aiogram.filters import BaseFilter
 from aiogram.types import Message
 from core.config import settings
 from database.repositories.user_repo import UserRepository
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 class IsTechAdmin(BaseFilter):
     async def __call__(self, message: Message) -> bool:

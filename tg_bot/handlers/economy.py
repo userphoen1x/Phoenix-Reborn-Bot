@@ -1,8 +1,7 @@
 import re
 from aiogram import Router, F
 from aiogram.types import Message
-from dishka import inject
-from dishka.integrations.aiogram import FromDishka
+from dishka.integrations.aiogram import inject, FromDishka
 
 from services.economy_service import EconomyService
 from database.repositories.user_repo import UserRepository
