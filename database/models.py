@@ -6,10 +6,15 @@ Base = declarative_base()
 class User(Base):
     __tablename__ = 'users'
     user_id = Column(BigInteger, primary_key=True)
-    tag = Column(String)
-    name = Column(String)
-    tg_name = Column(String)
-    role_name = Column(String)
+    bs_tag = Column(String)
+    player_name = Column(String)
+    club_name = Column(String)
+
+class TgProfile(Base):
+    __tablename__ = 'tg_profiles'
+    user_id = Column(BigInteger, primary_key=True)
+    full_name = Column(String)
+    game_role = Column(String)
     role_status = Column(String)
     reg_date = Column(String)
 
@@ -17,7 +22,6 @@ class Economy(Base):
     __tablename__ = 'economy'
     user_id = Column(BigInteger, primary_key=True)
     balance = Column(Integer, default=0)
-    bs_tag = Column(String)
     last_daily = Column(String)
 
 class ChatStat(Base):

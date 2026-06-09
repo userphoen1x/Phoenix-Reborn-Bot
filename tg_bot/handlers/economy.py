@@ -40,6 +40,17 @@ async def cmd_balance(message: Message, eco_service: FromDishka[EconomyService],
         sent = await message.answer(LEXICON["error_generic"].format(error=e))
         schedule_delete(sent, DELAYS["default"])
 
+@router.message(F.text.func(lambda text: is_cmd(text, ["работа", "ворк", "daily"])))
+@inject
+async def cmd_daily(message: Message, eco_service: FromDishka[EconomyService]):
+    try:
+        amount = await eco_service.claim_daily(message.from_user.id)
+        sent = await message.answer(LEXICON.get("eco_daily_success", "✅ Вы успешно поработали и получили <b>{amount} ₣</b>!").format(amount=amount), parse_mode="HTML")
+        schedule_delete(sent, DELAYS["default"])
+    except Exception as e:
+        sent = await message.answer(LEXICON["error_generic"].format(error=e))
+        schedule_delete(sent, DELAYS["default"])
+
 @router.message(F.text.func(lambda text: is_cmd(text, ["перевод", "pay", "give"])))
 @inject
 async def cmd_transfer(message: Message, eco_service: FromDishka[EconomyService], user_repo: FromDishka[UserRepository]):

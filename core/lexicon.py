@@ -3,6 +3,7 @@ LEXICON = {
 
     # Экономика
     "eco_balance": "💰 Баланс {target}: <b>{balance} ₣</b>",
+    "eco_daily_success": "✅ Вы успешно поработали и получили <b>{amount} ₣</b>!",
     "eco_err_format_transfer": "❌ Формат: <code>/перевод [сумма] [@user или реплай]</code>",
     "eco_err_self_transfer": "❌ Нельзя перевести самому себе.",
     "eco_success_transfer": "✅ Успешный перевод!\n💸 Вы отправили <b>{amount} ₣</b> пользователю {target}.",
