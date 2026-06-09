@@ -20,8 +20,9 @@ class UserRepository:
         return await cursor.fetchone() is not None
 
     async def get_user_data(self, user_id: int) -> Optional[tuple]:
+        # ИСПРАВЛЕННЫЙ ЗАПРОС: Строгий порядок: Игровой ник, Клуб, Тег, ТГ Юзернейм
         cursor = await self.db.execute("""
-            SELECT p.user_id, p.full_name, u.bs_tag, p.game_role
+            SELECT u.player_name, u.club_name, u.bs_tag, p.full_name
             FROM tg_profiles p
             LEFT JOIN users u ON p.user_id = u.user_id
             WHERE p.user_id = ?
@@ -51,7 +52,6 @@ class UserRepository:
             await self.db.execute("INSERT INTO users (user_id, bs_tag, player_name) VALUES (?, ?, ?)", (user_id, tag, player_name))
         await self.db.commit()
 
-    # --- ВОССТАНОВЛЕННЫЕ МЕТОДЫ ---
     async def get_tag_to_tg_map(self) -> Dict[str, Dict[str, Any]]:
         cursor = await self.db.execute("""
             SELECT u.bs_tag, p.user_id, p.full_name
