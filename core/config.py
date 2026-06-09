@@ -22,8 +22,16 @@ class Settings:
     GROQ_KEYS = [k for k in _groq_keys_raw if k]
 
     BS_API_KEY = os.getenv("BS_API_KEY", "")
+
     _clan_tags_raw = os.getenv("CLAN_TAGS", "")
-    CLAN_TAGS = [tag.strip().replace("%23", "#") for tag in _clan_tags_raw.split(",") if tag.strip()]
+    _tags = []
+    for tag in _clan_tags_raw.split(","):
+        clean_tag = tag.strip().replace("%23", "#")
+        if clean_tag:
+            if not clean_tag.startswith("#"):
+                clean_tag = "#" + clean_tag
+            _tags.append(clean_tag.upper())
+    CLAN_TAGS = _tags
 
     TOPIC_REG = os.getenv("TOPIC_REG")
     TOPIC_SESSION = os.getenv("TOPIC_SESSION")

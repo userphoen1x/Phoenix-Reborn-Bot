@@ -49,6 +49,11 @@ async def cmd_start(message: Message, state: FSMContext, bot: Bot, user_repo: Fr
             bs_tag = current_user.get("tag", "")
             live_stats = await brawl_client.get_player_stats(bs_tag)
 
+            # Если API лежит (нет доступа)
+            if live_stats is None:
+                return await wait_msg.edit_text(
+                    "❌ Ошибка соединения с API Brawl Stars.\n\nВозможно, токен устарел или IP-адрес сервера не добавлен в белый список. Вызови команду /ping в чате для проверки.")
+
             player_club_tag = live_stats.get("club", {}).get("tag", "") if live_stats else ""
             in_club = player_club_tag in settings.CLAN_TAGS
 
