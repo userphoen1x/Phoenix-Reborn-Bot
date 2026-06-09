@@ -12,7 +12,6 @@ class BrawlAPIClient:
         return {"Authorization": f"Bearer {settings.BS_API_KEY}"}
 
     async def check_api_connection(self) -> tuple[bool, str]:
-
         if not settings.BS_API_KEY:
             return False, "Ключ не установлен."
         if not settings.CLAN_TAGS:
@@ -78,7 +77,19 @@ class BrawlAPIClient:
                 async with session.get(url, headers=self.headers) as response:
                     if response.status == 200:
                         data = await response.json()
-                        return {"trophies": data.get("trophies", 0), "solo_wins": data.get("soloVictories", 0), "duo_wins": data.get("duoVictories", 0), "wins_3v3": data.get("3vs3Victories", 0), "highest_trophies": data.get("highestTrophies", 0), "ranked_curr_rank": data.get("rankedRank", 0), "ranked_curr_elo": data.get("currentRankedElo", data.get("rankedElo", 0)), "ranked_high_rank": data.get("highestRankedRank", data.get("highestRank", 0)), "ranked_high_elo": data.get("highestRankedElo", 0)}
+                        return {
+                            "name": data.get("name", "Игрок"),
+                            "club": data.get("club", {}),
+                            "trophies": data.get("trophies", 0),
+                            "solo_wins": data.get("soloVictories", 0),
+                            "duo_wins": data.get("duoVictories", 0),
+                            "wins_3v3": data.get("3vs3Victories", 0),
+                            "highest_trophies": data.get("highestTrophies", 0),
+                            "ranked_curr_rank": data.get("rankedRank", 0),
+                            "ranked_curr_elo": data.get("currentRankedElo", data.get("rankedElo", 0)),
+                            "ranked_high_rank": data.get("highestRankedRank", data.get("highestRank", 0)),
+                            "ranked_high_elo": data.get("highestRankedElo", 0)
+                        }
                     return None
             except Exception:
                 return None
